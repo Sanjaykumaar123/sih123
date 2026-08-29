@@ -1,0 +1,110 @@
+# Stage 1 configuration — RF Environment Simulator (SIH 26055)
+num_bands: 50
+receiver_channels: 5
+random_seed: 42
+max_timesteps: 500
+
+# Stage 2 — probabilistic detection layer (see rf_env/detection.py).
+# P_d(snr) = 1 / (1 + exp(-(snr - threshold_db) / snr_scale)), logistic,
+# monotonic in snr. false_alarm_probability applies when no emitter is
+# present (SNR-independent, since there is no real signal to measure).
+# `seed` is independent of random_seed so detection randomness doesn't
+# perturb emitter construction/hopping reproducibility.
+detection:
+  threshold_db: 10.0
+  snr_scale: 3.0
+  false_alarm_probability: 0.05
+  seed: 123
+
+# Stage 3 — Bayesian belief engine (see rf_env/belief.py).
+# Beta(prior_alpha, prior_beta) per band; decay_gamma pulls (alpha, beta)
+# back toward the prior each timestep so stale evidence loses influence.
+belief:
+  prior_alpha: 1.0
+  prior_beta: 1.0
+  decay_gamma: 0.98
+
+# Stage 4 — temporal behaviour / prediction engine (see rf_env/temporal.py).
+# Bounded per-band observation history -> inter-hit interval stats ->
+# periodicity score + next-active prediction. Deterministic, no ML.
+temporal:
+  history_length: 50
+  min_hits_for_prediction: 3
+  periodicity_threshold: 0.7
+  stable_interval_max: 1.5
+
+# Stage 5 — band-scoring strategies (see rf_env/scoring.py).
+# staleness_scale: timesteps at which normalized_staleness reaches 0.5.
+# balanced_weights must sum to 1.0.
+scoring:
+  staleness_scale: 10.0
+  balanced_weights:
+    exploration: 0.30
+    exploitation: 0.40
+    prediction: 0.30
+
+# Stage 6 — tabular Q-learning strategy arbitrator (see rf_env/arbitrator.py).
+ml_arbitrator:
+  learning_rate: 0.10
+  discount_factor: 0.90
+  epsilon: 0.20
+  epsilon_decay: 0.995
+  min_epsilon: 0.05
+  redundancy_window: 3
+  redundant_scan_penalty: 0.20
+  seed: 456
+
+# Stage 7 — adaptive/evasive emitter (see rf_env/emitters.py:AdaptiveEvasiveEmitter).
+# A controlled, deterministic simulation of non-stationary RF behaviour --
+# NOT an intelligent adversary. Reacts only to its own recent detection
+# history (fed back by RFEnvironment.notify_scan_results()).
+adaptive_evasion:
+  enabled: true
+  hit_threshold: 3
+  observation_window: 10
+  evasive_duration: 8
+  seed: 789
+
+# Stage 8 — baseline comparison and evaluation (see rf_env/evaluation.py).
+evaluation:
+  num_steps: 2000
+  seeds: [100, 200, 300, 400, 500]
+
+# Stage 9 — predictive performance module (see rf_env/predictor.py).
+predictive:
+  enabled: true
+  model_type: random_forest
+  n_estimators: 100
+  max_depth: 8
+  min_samples_leaf: 2
+  prediction_horizon: 100
+  seed: 999
+
+emitters:
+  - id: E1
+    type: static
+    band: F10
+    signal_strength: -60.0
+    snr: 15.0
+    active_prob: 1.0
+
+  - id: E2
+    type: periodic
+    band: F20
+    period: 10
+    duty_cycle: 0.1
+    signal_strength: -55.0
+    snr: 18.0
+
+  - id: E3
+    type: frequency_agile
+    hop_interval: 2
+    pattern_length: 20
+    signal_strength: -65.0
+    snr: 12.0
+
+  - id: E4
+    type: adaptive_evasive
+    band: F30
+    signal_strength: -63.0
+    snr: 10.0

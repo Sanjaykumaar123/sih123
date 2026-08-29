@@ -1,0 +1,268 @@
+{
+  "feature_names": [
+    "belief_activity_probability",
+    "belief_uncertainty",
+    "staleness",
+    "temporal_periodicity_score",
+    "temporal_prediction_confidence",
+    "estimated_period",
+    "predicted_next_active_time_distance",
+    "recent_hit_rate",
+    "recent_miss_rate",
+    "recent_average_snr",
+    "number_of_observations",
+    "number_of_hits",
+    "current_timestep",
+    "current_strategy",
+    "current_strategy_score",
+    "exploration_score",
+    "exploitation_score",
+    "prediction_score",
+    "balanced_score"
+  ],
+  "prediction_horizon": 100,
+  "train_seeds": [
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109
+  ],
+  "val_seeds": [
+    400,
+    401,
+    402,
+    403,
+    404
+  ],
+  "test_seeds": [
+    450,
+    451,
+    452,
+    453,
+    454
+  ],
+  "run_length": 600,
+  "n_train_samples": 25000,
+  "n_val_samples": 12500,
+  "n_test_samples": 12500,
+  "generation_seconds": 18.72,
+  "training_seconds": 20.52,
+  "val_metrics": {
+    "intercept_time": {
+      "random_forest": {
+        "mae": 11.8674,
+        "rmse": 20.48,
+        "r2": 0.5691
+      },
+      "mean_baseline": {
+        "mae": 25.9407,
+        "rmse": 31.5191,
+        "r2": -0.0206
+      },
+      "n_samples": 12500
+    },
+    "interception_rate": {
+      "random_forest": {
+        "mae": 0.0372,
+        "rmse": 0.0691,
+        "r2": 0.8923
+      },
+      "mean_baseline": {
+        "mae": 0.1342,
+        "rmse": 0.2116,
+        "r2": -0.0108
+      },
+      "n_samples": 12500
+    }
+  },
+  "test_metrics": {
+    "intercept_time": {
+      "random_forest": {
+        "mae": 11.8038,
+        "rmse": 20.7826,
+        "r2": 0.6241
+      },
+      "mean_baseline": {
+        "mae": 27.5049,
+        "rmse": 33.9848,
+        "r2": -0.0052
+      },
+      "n_samples": 12500
+    },
+    "interception_rate": {
+      "random_forest": {
+        "mae": 0.036,
+        "rmse": 0.0688,
+        "r2": 0.9224
+      },
+      "mean_baseline": {
+        "mae": 0.1539,
+        "rmse": 0.2469,
+        "r2": -0.0
+      },
+      "n_samples": 12500
+    }
+  },
+  "feature_importance_time": [
+    [
+      "recent_average_snr",
+      0.675963129566076
+    ],
+    [
+      "recent_hit_rate",
+      0.07714269149468846
+    ],
+    [
+      "exploitation_score",
+      0.05296242642102655
+    ],
+    [
+      "belief_uncertainty",
+      0.03504619733942574
+    ],
+    [
+      "estimated_period",
+      0.03365377425145145
+    ],
+    [
+      "belief_activity_probability",
+      0.03288818399637515
+    ],
+    [
+      "current_timestep",
+      0.022614118606856807
+    ],
+    [
+      "temporal_periodicity_score",
+      0.01806345573630619
+    ],
+    [
+      "number_of_observations",
+      0.015793856459942895
+    ],
+    [
+      "temporal_prediction_confidence",
+      0.009078735595797449
+    ],
+    [
+      "current_strategy_score",
+      0.0048333889380511455
+    ],
+    [
+      "number_of_hits",
+      0.004431778551001022
+    ],
+    [
+      "balanced_score",
+      0.004296995453199439
+    ],
+    [
+      "exploration_score",
+      0.003837749645109454
+    ],
+    [
+      "prediction_score",
+      0.0025464852895476344
+    ],
+    [
+      "predicted_next_active_time_distance",
+      0.0021174167353284674
+    ],
+    [
+      "staleness",
+      0.001920267340117868
+    ],
+    [
+      "recent_miss_rate",
+      0.0018766822801607609
+    ],
+    [
+      "current_strategy",
+      0.0009326662995376839
+    ]
+  ],
+  "feature_importance_rate": [
+    [
+      "recent_hit_rate",
+      0.6126856296811239
+    ],
+    [
+      "belief_activity_probability",
+      0.16651852443842546
+    ],
+    [
+      "exploitation_score",
+      0.11092093809931164
+    ],
+    [
+      "recent_average_snr",
+      0.07869428469860182
+    ],
+    [
+      "current_timestep",
+      0.005405186167805941
+    ],
+    [
+      "balanced_score",
+      0.004604912497219704
+    ],
+    [
+      "number_of_hits",
+      0.0032709190800101363
+    ],
+    [
+      "temporal_prediction_confidence",
+      0.002974031505757282
+    ],
+    [
+      "estimated_period",
+      0.0020977575927779335
+    ],
+    [
+      "belief_uncertainty",
+      0.00208765002664692
+    ],
+    [
+      "number_of_observations",
+      0.0020849398703514195
+    ],
+    [
+      "temporal_periodicity_score",
+      0.0017917183584767896
+    ],
+    [
+      "current_strategy",
+      0.0015552543857754598
+    ],
+    [
+      "recent_miss_rate",
+      0.0014506264522376497
+    ],
+    [
+      "exploration_score",
+      0.001435758118828704
+    ],
+    [
+      "current_strategy_score",
+      0.0007166506888335772
+    ],
+    [
+      "prediction_score",
+      0.0006303275039772512
+    ],
+    [
+      "staleness",
+      0.0005712488494113667
+    ],
+    [
+      "predicted_next_active_time_distance",
+      0.0005036419844270639
+    ]
+  ]
+}
