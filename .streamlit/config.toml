@@ -1,0 +1,12 @@
+[theme]
+base = "dark"
+# Enterprise Design System tokens (mirrors dashboard/theme.py's COLOR_PRIMARY/
+# COLOR_BASE/COLOR_PANEL/COLOR_TEXT exactly). Setting these natively retints
+# Streamlit's own slider/checkbox/radio/progress-bar accent from its stock red
+# to the design system's cyan at the source, instead of fighting it with CSS
+# overrides per-widget (the same cascade problem already hit and documented for
+# the START MISSION button in dashboard/theme.py's button CSS).
+primaryColor = "#00E5FF"
+backgroundColor = "#0A0A0B"
+secondaryBackgroundColor = "#161618"
+textColor = "#E6EDEE"

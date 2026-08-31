@@ -1,311 +1,672 @@
-"""Stage 10: Streamlit dashboard for the Smart Scan Strategy prototype.
+"""COGNITIVE RF SPECTRUM MANAGEMENT WORKSTATION.
+
+Production-grade operational Electronic Support / Cognitive RF Spectrum Monitoring
+Workstation with two independent, clearly-labeled operating modes:
+
+  LIVE SIMULATION    - core.live_mission.LiveMissionRuntime wraps the real, verified
+                        closed loop (simulation.engine.SimulationEngine ->
+                        rf_env.evaluation.IntelligentSchedulerAdapter ->
+                        rf_env.receiver.Receiver -> rf_env.detection.DetectionModel).
+                        Every value shown is computed live, this run, this step.
+
+  REPLAY VERIFIED RUN - core.playback_controller.PlaybackController deterministically
+                        replays a verified results/operational_evaluation_config_*.json
+                        artifact.
+
+The two are never mixed: each view shows exactly one mode's data at a time, labeled,
+except ANALYTICS, which deliberately shows both side by side in clearly separate
+sections. Neither mode fabricates telemetry - any field the active runtime doesn't
+have real data for is shown as N/A rather than invented.
 
 Launch: streamlit run app.py
-
-This file is ONLY the visualization/integration layer. It runs the REAL
-Stage 1-8 closed loop via dashboard/simulation_runner.py
-(SimulationRunner, which itself only calls IntelligentSchedulerAdapter,
-EvaluationMetrics, and env.notify_scan_results -- all Stage 6/7/8 code,
-unmodified). No second scheduler, no new ML, no fabricated numbers.
 """
 
 import json
 import os
-import pickle
+import time
 
+import pandas as pd
 import streamlit as st
 
-from dashboard.simulation_runner import SimulationRunner
-from dashboard import visualizations as viz
+from core.playback_controller import PlaybackController
+from core.live_mission import LiveMissionRuntime, LiveMissionStatus
+from core.state import EngineStatus
+from data.scenario_loader import discover_scenarios, get_validated_scenarios
+from dashboard import (
+    live_operations,
+    receiver_panel,
+    decision_panel,
+    spectrum,
+    tracks,
+    performance,
+    event_console,
+    system,
+    help as ophelp,
+    cognitive_pipeline,
+    alerts,
+    theme,
+)
 
-st.set_page_config(page_title="Smart Scan Strategy for EW", layout="wide")
+SCAN_DIR = r"D:\sih\dataset\scan\test_scan"
+SCEN_OPTIONS = ["config_1.h5", "config_2.h5", "config_3.h5", "config_4.h5", "config_5.h5"]
 
-STRATEGY_LABELS = ["EXPLORE", "EXPLOIT", "PREDICT", "BALANCED"]
-LEVEL_LABELS = ["LOW", "MEDIUM", "HIGH"]
+# -----------------------------------------------------------------------------
+# 1. Page Configuration & Theme
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Cognitive RF Spectrum Management Workstation",
+    page_icon="📡",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
+# Stitch design-system CSS (colors/typography/spacing/radius/borders) - see
+# dashboard/theme.py for the token source. Presentation only; nothing below reads or
+# computes mission data.
+st.markdown(theme.get_custom_css(), unsafe_allow_html=True)
 
-# ---------------------------------------------------------------- caching
-@st.cache_data
-def load_json_artifact(path):
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return None
-
-
-@st.cache_resource
-def load_predictor(path):
-    if os.path.exists(path):
-        with open(path, "rb") as f:
-            return pickle.load(f)
-    return None
+t_render_start = time.perf_counter()
 
 
-def fmt(v):
-    if isinstance(v, (int, float)):
-        return f"{v:.3f}"
-    return "n/a" if v == "insufficient_data" else str(v)
+# -----------------------------------------------------------------------------
+# 2. Session-state runtimes: one PlaybackController (cheap, eager) and at most one
+#    LiveMissionRuntime (loads a real HDF5 scenario, so constructed lazily - only
+#    once the operator actually engages LIVE SIMULATION mode).
+# -----------------------------------------------------------------------------
+if "playback_controller" not in st.session_state:
+    st.session_state.playback_controller = PlaybackController(
+        scenario_id="config_1.h5", speed=1.0, strategy_type="smart_scan",
+    )
+if "live_mission" not in st.session_state:
+    st.session_state.live_mission = None
+if "operating_mode" not in st.session_state:
+    st.session_state.operating_mode = "LIVE SIMULATION"
+
+controller: PlaybackController = st.session_state.playback_controller
 
 
-# ---------------------------------------------------------------- header
-st.title("SMART SCAN STRATEGY FOR ELECTRONIC WARFARE")
-st.caption("Adaptive ML-Based Spectrum Scanning under Limited Receiver Channels")
-
-with st.expander("Judge demo script (talking points)"):
-    st.markdown(
-        "1. **Limited receiver** -- 50 bands, only 5 observed at a time.\n"
-        "2. **Exploration** -- uncertain/stale bands are prioritized first.\n"
-        "3. **Bayesian learning** -- every hit/miss updates P(active).\n"
-        "4. **Temporal learning** -- repeated activity yields a period estimate.\n"
-        "5. **Multiple strategies** -- explore/exploit/predict/balanced scores.\n"
-        "6. **Reinforcement learning** -- Q-learning picks the trusted strategy.\n"
-        "7. **Adaptive emitter** -- repeated detection triggers evasive behaviour.\n"
-        "8. **Adaptation** -- scanning priorities shift as belief/temporal state changes.\n"
-        "9. **Re-acquisition** -- the system searches again and finds it.\n"
-        "10. **Predictive ML** -- Random Forest estimates interception time/rate.\n"
-        "11. **Baseline comparison** -- Intelligent vs. Round Robin vs. Random-K, honestly."
+def _init_live_mission(scenario_file: str, strategy_slug: str, k: int = 5, seed: int = 42) -> None:
+    st.session_state.live_mission = LiveMissionRuntime(
+        scenario_path=os.path.join(SCAN_DIR, scenario_file),
+        strategy_type=strategy_slug, k_channels=k, n_bands=50, seed=seed,
     )
 
-# ---------------------------------------------------------------- sidebar
-st.sidebar.header("Simulation Controls")
-seed = st.sidebar.number_input("Random seed", min_value=0, max_value=100000, value=42, step=1)
-steps_per_action = st.sidebar.slider("Steps per action", 1, 100, 10)
-auto_run = st.sidebar.checkbox("Auto-run (Start/Pause)", value=False)
 
-if "runner" not in st.session_state:
-    st.session_state.runner = SimulationRunner(seed=int(seed))
+# -----------------------------------------------------------------------------
+# 3. Scenario Discovery & Operator Sidebar
+# -----------------------------------------------------------------------------
+all_discovered = discover_scenarios()
+validated_scenarios = get_validated_scenarios()
 
-c1, c2, c3 = st.sidebar.columns(3)
-if c1.button("Step"):
-    st.session_state.runner.step()
-if c2.button(f"Run {steps_per_action}"):
-    st.session_state.runner.run(steps_per_action)
-if c3.button("Reset"):
-    st.session_state.runner.reset(int(seed))
+st.sidebar.markdown("<div class='system-title' style='font-size:0.95rem;'>OPERATOR CONSOLE</div>", unsafe_allow_html=True)
+st.sidebar.markdown("<span class='tech-badge badge-success'>● SYSTEM HEALTHY</span>", unsafe_allow_html=True)
 
-runner = st.session_state.runner
+# Operator-oriented 8-item navigation (Stitch's left icon rail, approximated with a
+# native Streamlit sidebar radio + icon glyphs - Streamlit has no icon-rail widget).
+# HELP is deliberately NOT one of these 8 - it is a secondary/footer destination,
+# rendered at the bottom of the sidebar (see "OPERATOR HELP" below).
+NAV_VIEWS = ["MISSION CONTROL", "SPECTRUM", "COGNITIVE ENGINE", "RECEIVER ARRAY", "TRACKS", "ALERTS", "ANALYTICS", "SYSTEM"]
+if "show_help_page" not in st.session_state:
+    st.session_state.show_help_page = False
+# Programmatic navigation (e.g. Mission Control's "View all alerts ->" button):
+# a widget-bound key (nav_view_radio) cannot be reassigned mid-script after the
+# widget has already been instantiated this run - Streamlit raises
+# StreamlitAPIException. The safe pattern is a plain, non-widget "pending nav"
+# flag a button sets before calling st.rerun(); consumed here, BEFORE
+# nav_view_radio is instantiated below, on the next run.
+if "_pending_nav" in st.session_state:
+    st.session_state["nav_view_radio"] = st.session_state.pop("_pending_nav")
+nav_view = st.sidebar.radio(
+    "NAVIGATION", options=NAV_VIEWS, index=0, key="nav_view_radio",
+    format_func=lambda v: f"{theme.NAV_ICONS.get(v, '')}  {v}",
+    on_change=lambda: st.session_state.update(show_help_page=False),
+)
+st.sidebar.markdown("---")
 
-# A fresh/just-reset runner has taken no steps yet (t == -1) -- Stage 5's
-# BandScoringEngine has nothing to score until then. Take one real step so
-# the dashboard has valid state to show immediately, rather than erroring.
-if runner.t < 0:
-    runner.step()
+# --- Operating mode ---
+st.sidebar.markdown("<div class='channel-header' style='font-size:0.75rem;'>OPERATING MODE</div>", unsafe_allow_html=True)
+operating_mode = st.sidebar.radio(
+    "OPERATING MODE", options=["LIVE SIMULATION", "REPLAY VERIFIED RUN"],
+    index=0 if st.session_state.operating_mode == "LIVE SIMULATION" else 1,
+    key="operating_mode_radio", label_visibility="collapsed",
+    help="LIVE SIMULATION: a real, executing mission — new decisions generated this run. "
+         "REPLAY VERIFIED RUN: deterministic playback of a verified precomputed artifact.",
+)
+st.session_state.operating_mode = operating_mode
+mode_badge = "badge-live" if operating_mode == "LIVE SIMULATION" else "badge-primary"
+st.sidebar.markdown(f"<span class='tech-badge {mode_badge}'>● {operating_mode} ACTIVE</span>", unsafe_allow_html=True)
 
-if auto_run:
-    runner.step()
+if operating_mode == "LIVE SIMULATION" and st.session_state.live_mission is None:
+    # Constructing LiveMissionRuntime loads a real TSRD HDF5 scenario file (measured
+    # ~3-6 real seconds cold) - an explicit spinner here (rather than a silent
+    # multi-second gap while only sidebar chrome has rendered) so a first-time
+    # operator sees real progress feedback instead of what looks like a stalled or
+    # broken page during that load.
+    with st.spinner("INITIALIZING LIVE MISSION — loading TSRD scenario data..."):
+        _init_live_mission("config_1.h5", "smart_scan")
+
+st.sidebar.markdown("---")
+
+# --- Scenario / strategy / speed ---
+st.sidebar.markdown("<div class='channel-header' style='font-size:0.75rem;'>OPERATION CONFIGURATION</div>", unsafe_allow_html=True)
+if operating_mode == "LIVE SIMULATION":
+    lm = st.session_state.live_mission
+    curr_scen = os.path.basename(lm.scenario_path) if lm else "config_1.h5"
+    curr_strat = lm.strategy_type if lm else "smart_scan"
+else:
+    curr_scen = controller.scenario_name
+    curr_strat = controller.strategy_type
+
+sb_scen = st.sidebar.selectbox(
+    "SCENARIO FILE", options=SCEN_OPTIONS,
+    index=SCEN_OPTIONS.index(curr_scen) if curr_scen in SCEN_OPTIONS else 0,
+    key="sb_scen_select",
+)
+sb_strat = st.sidebar.selectbox(
+    "STRATEGY",
+    options=["Smart Scan (Cognitive Q-Learning)", "Open Loop (Sequential Sweep)"],
+    index=0 if curr_strat == "smart_scan" else 1,
+    key="sb_strat_select",
+)
+strat_slug = "smart_scan" if "Smart" in sb_strat else "open_loop"
+
+sb_speed = st.sidebar.select_slider(
+    "SIMULATION SPEED", options=[0.5, 1.0, 2.0, 5.0, 10.0],
+    value=float(st.session_state.live_mission.speed if (operating_mode == "LIVE SIMULATION" and st.session_state.live_mission) else controller.speed),
+    format_func=lambda x: f"{x}x", key="sb_speed_slider",
+)
+if operating_mode == "LIVE SIMULATION" and st.session_state.live_mission is not None:
+    st.session_state.live_mission.set_speed(sb_speed)
+else:
+    controller.set_speed(sb_speed)
+
+# Section 11/12: changing scenario/strategy while a LIVE mission is actively RUNNING
+# or PAUSED must not silently destroy it - require STOP -> RESET -> CHANGE first.
+_live_mission_blocking = (
+    operating_mode == "LIVE SIMULATION"
+    and st.session_state.live_mission is not None
+    and st.session_state.live_mission.mission_status in (LiveMissionStatus.RUNNING, LiveMissionStatus.PAUSED)
+)
+if _live_mission_blocking:
+    st.sidebar.warning(
+        f"Mission is {st.session_state.live_mission.mission_status} — "
+        "STOP and RESET before changing scenario/strategy."
+    )
+# Step 17 section 12/15: REPLAY VERIFIED RUN is not blocked the same way (unlike a
+# LIVE mission, replaying loses no real computed state - the artifact reloads
+# instantly and deterministically), but the operator must still be told their
+# current replay position is about to be discarded, not have it happen silently.
+_replay_progress_at_risk = (
+    operating_mode == "REPLAY VERIFIED RUN" and (controller.running or controller.current_step > 0)
+)
+if _replay_progress_at_risk:
+    st.sidebar.info(
+        f"Replay is at step {controller.current_step}/{controller.total_timesteps}. "
+        "Applying a new scenario/strategy will reset this replay to step 0."
+    )
+if st.sidebar.button("🔄 INITIALIZE / APPLY", use_container_width=True, disabled=_live_mission_blocking):
+    if operating_mode == "LIVE SIMULATION":
+        with st.spinner(f"Loading {sb_scen}..."):
+            _init_live_mission(sb_scen, strat_slug)
+        st.sidebar.success(f"Live mission initialized: {sb_scen} ({strat_slug}).")
+    else:
+        controller.set_scenario(scenario_id=sb_scen, strategy_type=strat_slug)
+        st.sidebar.success(f"Replay initialized: {sb_scen} ({strat_slug}).")
     st.rerun()
 
-# ---------------------------------------------------------------- KPI cards
-belief_state = runner.belief_state()
-scores = runner.scores()
-metrics = runner.metrics_summary()
-last_record = runner.history[-1] if runner.history else None
-current_strategy = last_record["strategy"].upper() if last_record else "-"
+# --- Active engine for this rerun ---
+engine = st.session_state.live_mission if operating_mode == "LIVE SIMULATION" else controller
+snap0 = engine.get_snapshot()
 
-k1, k2, k3, k4, k5, k6 = st.columns(6)
-k1.metric("Total Bands", runner.config["num_bands"])
-k2.metric("Receiver Channels (K)", runner.k)
-k3.metric("Current Timestep", runner.t)
-k4.metric("Current Strategy", current_strategy)
-k5.metric("Detection Rate (Pd)", fmt(metrics["pd"]))
-k6.metric("Avg Reward", fmt(metrics["avg_reward"]))
+st.sidebar.markdown("---")
+st.sidebar.markdown("<div class='channel-header' style='font-size:0.75rem;'>SIMULATED RECEIVER ARRAY</div>", unsafe_allow_html=True)
+st.sidebar.markdown(f"**Channels (K):** `{snap0.get('k_channels', 5)} Simultaneous`")
+st.sidebar.markdown(f"**Frequency Range:** `500 MHz – 18.0 GHz`")
+st.sidebar.markdown(f"**Bandwidth:** `17.5 GHz ({snap0.get('n_bands', 50)} Bands)`")
+st.sidebar.markdown(f"**Dwell Time:** `50.0 ms per step`")
 
-tabs = st.tabs([
-    "Spectrum", "Band Priority", "Belief (Stage 3)", "Temporal (Stage 4)",
-    "Q-Learning (Stage 6)", "Adaptive Evasion (Stage 7)", "Predictive ML (Stage 9)",
-    "Baseline Comparison (Stage 8)", "Why This Band?", "Architecture", "Live Metrics",
-])
+st.sidebar.markdown("---")
+ophelp.render_visibility_indicator(snap0)
+st.sidebar.markdown("---")
 
-# ---------------------------------------------------------------- Spectrum
-with tabs[0]:
-    if runner.history:
-        st.plotly_chart(viz.spectrum_waterfall(runner.history), use_container_width=True)
-    else:
-        st.info("Step the simulation to populate the waterfall.")
-    with st.expander("EVALUATION / DEBUG VIEW (ground truth -- not scheduler input)"):
-        st.json(runner.last_ground_truth_debug or {})
+if operating_mode == "LIVE SIMULATION" and st.session_state.live_mission is not None:
+    ophelp.render_scenario_metadata_panel(st.session_state.live_mission.get_scenario_metadata())
+else:
+    desc = all_discovered.get(sb_scen.replace(".h5", ""))
+    ophelp.render_scenario_metadata_panel({
+        "emitter_count": (desc.metrics_summary or {}).get("smart_scan", {}).get("unique_emitters_present") if desc and desc.metrics_summary else None,
+        "collection_duration_s": desc.duration_s if desc else None,
+        "frequency_range_mhz": (500.0, 18000.0) if desc else None,
+        "num_bands": desc.num_bands if desc else None,
+        "receiver_channels": desc.channels if desc else None,
+        "total_steps": desc.num_steps if desc else None,
+    })
+st.sidebar.markdown("---")
 
-# ---------------------------------------------------------------- Band Priority
-with tabs[1]:
-    st.write("Stage 5 strategy scores for every band (no new formula -- BandScoringEngine output).")
-    selected_now = set(last_record["selected_bands"]) if last_record else set()
-    rows = sorted(scores, key=lambda s: s.balanced_score, reverse=True)[:15]
-    st.dataframe([
-        {"Band": s.band_id, "Selected now": s.band_id in selected_now,
-         "Exploration": round(s.exploration_score, 3), "Exploitation": round(s.exploitation_score, 3),
-         "Prediction": round(s.prediction_score, 3), "Balanced": round(s.balanced_score, 3)}
-        for s in rows
-    ], use_container_width=True, hide_index=True)
+st.sidebar.markdown("<div class='channel-header' style='font-size:0.75rem;'>SYSTEM TELEMETRY</div>", unsafe_allow_html=True)
+st.sidebar.markdown(f"**Mission ID:** `{getattr(engine, 'mission_id', 'N/A')}`")
+st.sidebar.markdown(f"**Data Source:** `TSRD ({'Live Execution' if operating_mode == 'LIVE SIMULATION' else 'Operational Replay'})`")
+st.sidebar.markdown(f"**UI Latency:** `{getattr(controller, 'ui_latency_ms', 0.0):.1f} ms`")
 
-# ---------------------------------------------------------------- Belief
-with tabs[2]:
-    st.write("Stage 3: every observed hit or miss updates the probability that a band is active.")
-    top_belief = sorted(belief_state, key=lambda b: b.activity_probability, reverse=True)[:15]
-    st.dataframe([
-        {"Band": b.band_id, "P(active)": round(b.activity_probability, 3),
-         "Uncertainty": round(b.uncertainty, 4),
-         "Staleness": b.staleness if b.staleness != float("inf") else "never observed",
-         "Observations": b.hit_count + b.miss_count, "Hits": b.hit_count}
-        for b in top_belief
-    ], use_container_width=True, hide_index=True)
-    chart_bands = last_record["selected_bands"] if last_record else []
-    if chart_bands:
-        st.plotly_chart(viz.belief_line_chart(runner.belief_history, chart_bands),
-                         use_container_width=True)
+# -----------------------------------------------------------------------------
+# 3b. HELP - secondary/footer destination (deliberately not one of the 8 primary
+# NAV_VIEWS). Quick-reference expanders stay inline here; the full 12-section
+# operator guide (dashboard/help.py::render_help_page) opens in the main panel.
+# -----------------------------------------------------------------------------
+st.sidebar.markdown("---")
+if st.sidebar.button("📖 OPERATOR HELP (Full Guide)", use_container_width=True, key="btn_open_help_page"):
+    st.session_state.show_help_page = True
+    st.rerun()
+ophelp.render_how_to_operate()
+ophelp.render_glossary_expander()
 
-# ---------------------------------------------------------------- Temporal
-with tabs[3]:
-    st.write("Stage 4: temporal pattern classification -- no fabricated predictions.")
-    temporal_state = runner.temporal_state()
-    periodic_first = sorted(temporal_state, key=lambda t: t.periodicity_score, reverse=True)[:15]
-    st.dataframe([
-        {"Band": t.band_id, "Behaviour": t.behaviour_type,
-         "Estimated Period": round(t.estimated_period, 1) if t.estimated_period else "-",
-         "Next Predicted Active": (round(t.predicted_next_active_time, 1)
-                                    if t.predicted_next_active_time is not None else "-"),
-         "Periodicity Score": round(t.periodicity_score, 3),
-         "Confidence": round(t.prediction_confidence, 3)}
-        for t in periodic_first
-    ], use_container_width=True, hide_index=True)
+# -----------------------------------------------------------------------------
+# 3c. HELP page short-circuit: sidebar (nav/mode/config) stays fully live and
+# functional; only the main panel swaps to the full operator guide. Nothing below
+# this block runs on a HELP-page render, including the LIVE/REPLAY auto-advance
+# pacer at the very end of this file - the mission simply stops advancing while
+# the operator is reading, exactly as PAUSE would, and resumes on the next click
+# of a NAVIGATION item (see on_change= above) or the "← Back" button below.
+# -----------------------------------------------------------------------------
+if st.session_state.show_help_page:
+    if st.button("← Back to workstation", key="btn_close_help_page"):
+        st.session_state.show_help_page = False
+        st.rerun()
+    ophelp.render_help_page()
+    st.stop()
 
-# ---------------------------------------------------------------- Q-Learning
-with tabs[4]:
-    state, q_values = runner.current_q_state_and_values()
-    st.write("Stage 6 Q-learning arbitrator's CURRENT observable state:")
-    sc1, sc2, sc3 = st.columns(3)
-    sc1.metric("Performance level", LEVEL_LABELS[state[0]])
-    sc2.metric("Uncertainty level", LEVEL_LABELS[state[1]])
-    sc3.metric("Detection level", LEVEL_LABELS[state[2]])
-    selected_action = STRATEGY_LABELS.index(current_strategy) if current_strategy in STRATEGY_LABELS else 0
-    st.plotly_chart(viz.q_value_bar_chart(q_values, selected_action), use_container_width=True)
-    st.plotly_chart(viz.reward_history_chart(runner.reward_history), use_container_width=True)
+# -----------------------------------------------------------------------------
+# 5. Top status bar + primary control panel (every view) - ALWAYS the first thing
+# rendered in the main panel, on every view, every mission state. Previously
+# "SYSTEM READY" first-run guidance (below) and error banners rendered ahead of
+# this, so the workstation's own identity/controls only appeared after a block of
+# documentation-like content - fixed by moving this block first (Step 18).
+# -----------------------------------------------------------------------------
+live_operations.render_top_status_bar(engine)
 
-# ---------------------------------------------------------------- Adaptive Evasion
-with tabs[5]:
-    e4 = runner.e4
-    if e4 is None:
-        st.info("No adaptive/evasive emitter configured.")
-    else:
-        if e4.is_evasive:
-            st.warning("⚠ ADAPTIVE EVASION DETECTED -- emitter is currently in its evasive burst.")
-        st.markdown(
-            "Previous behaviour\n\n&darr;\n\nEmitter changes pattern\n\n&darr;\n\n"
-            "Detection performance changes\n\n&darr;\n\nRL strategy adapts\n\n&darr;\n\n"
-            "Scanning priorities change\n\n&darr;\n\nEmitter is re-acquired"
+# Mission Replay workspace: a timeline scrubber over the verified artifact. Only
+# meaningful in REPLAY VERIFIED RUN - PlaybackController.step() can honestly jump to
+# any recorded step (it is indexing an already-computed artifact); LiveMissionRuntime
+# cannot ("jumping" a live mission would mean fabricating steps that were never
+# actually executed, which is exactly what this project must never do). Uses
+# PlaybackController only - no second replay engine.
+if operating_mode == "REPLAY VERIFIED RUN":
+    live_operations.render_replay_scrubber(controller)
+
+# -----------------------------------------------------------------------------
+# 4b. Error handling (section 20): surface a missing/corrupted scenario or artifact
+# with an actionable message instead of silently rendering an all-N/A mission.
+# -----------------------------------------------------------------------------
+if operating_mode == "LIVE SIMULATION" and st.session_state.live_mission is not None:
+    if getattr(st.session_state.live_mission.engine, "env", "missing") is None:
+        st.error(
+            f"⚠ SCENARIO ENVIRONMENT FAILED TO LOAD — `{sb_scen}` was not found or could "
+            f"not be read from `{SCAN_DIR}`. Select a different scenario and press "
+            "INITIALIZE / APPLY, or verify the dataset files are present."
         )
-        summary = runner.evasion_summary()
-        ec1, ec2, ec3 = st.columns(3)
-        ec1.metric("Evasion events (this run)", summary.get("evasion_events", 0))
-        ec2.metric("Reacquired count", summary.get("reacquired_count", 0))
-        ec3.metric("Avg reacquisition time", fmt(summary.get("reacquisition_time", "insufficient_data")))
-        st.caption("These numbers are measured from THIS live run, via the existing Stage 7 "
-                   "feedback interface -- no evasion event is artificially triggered.")
+elif operating_mode == "REPLAY VERIFIED RUN" and not controller.time_series:
+    load_err = getattr(controller, "artifact_load_error", None)
+    reason = f" (reason: {load_err})" if load_err else " (file not found)"
+    st.error(
+        f"⚠ OPERATIONAL ARTIFACT UNAVAILABLE — no usable verified `operational_evaluation_"
+        f"{sb_scen.replace('.h5','')}.json` in `results/`{reason}. Select a different "
+        "scenario and press INITIALIZE / APPLY, or verify the artifact files are present."
+    )
 
-# ---------------------------------------------------------------- Predictive ML
-with tabs[6]:
-    stage9_results = load_json_artifact("results/stage9_results.json")
-    predictor = load_predictor("results/stage9_predictor.pkl")
-    if stage9_results is None or predictor is None:
-        st.info("Run `python demo_stage9.py` once to generate results/stage9_results.json "
-                "and results/stage9_predictor.pkl.")
-    else:
-        test_m = stage9_results["test_metrics"]
-        st.write("Held-out TEST performance (from the saved Stage 9 experiment, not retrained here):")
-        r2_time = test_m["intercept_time"]["random_forest"]["r2"]
-        r2_rate = test_m["interception_rate"]["random_forest"]["r2"] if isinstance(test_m["interception_rate"], dict) else "n/a"
-        pc1, pc2 = st.columns(2)
-        pc1.metric("Intercept Time R2 (Random Forest)", fmt(r2_time))
-        pc2.metric("Interception Rate R2 (Random Forest)", fmt(r2_rate))
+# -----------------------------------------------------------------------------
+# 6. View Router
+# -----------------------------------------------------------------------------
+if nav_view == "MISSION CONTROL":
+    # Mission Control redesign (Phase B): compact enterprise-console layout.
+    # Every value below still comes from the exact same engine.get_snapshot()/
+    # render_* calls as before - this block only changes WHERE/HOW they're laid
+    # out, never what's computed. Large explanatory content ("HOW THIS PROTOTYPE
+    # WORKS", the mission-history metrics recap that duplicated the KPI row, the
+    # "why this band" decision-reasoning card, and the data-integrity checklist)
+    # was moved out of this view - none of it was deleted: HOW THIS PROTOTYPE
+    # WORKS/glossary content lives in the sidebar's "HOW TO OPERATE" expander and
+    # in ophelp.render_help_page() section 1; band-selection reasoning has its
+    # full, real version in the COGNITIVE ENGINE view's decision panel; data
+    # integrity has its full, real version in the SYSTEM view.
+    is_first_run = snap0["mission_status"] == EngineStatus.READY and snap0.get("timestep", snap0.get("current_step", 0)) == 0
+    if is_first_run:
+        st.markdown(
+            theme.panel(
+                "SYSTEM READY",
+                (
+                    f"<span class='text-body' style='color:{theme.COLOR_TEXT_MUTED};'>"
+                    f"Mode <strong style='color:{theme.COLOR_TEXT};'>{operating_mode}</strong> &nbsp;·&nbsp; "
+                    f"Scenario <strong style='color:{theme.COLOR_TEXT};'>{snap0.get('scenario_name', sb_scen)}</strong> &nbsp;·&nbsp; "
+                    f"Receiver <strong style='color:{theme.COLOR_TEXT};'>K={snap0.get('k_channels', 5)}</strong> of "
+                    f"{snap0.get('n_bands', 50)} bands &nbsp;·&nbsp; Spectrum "
+                    f"<strong style='color:{theme.COLOR_TEXT};'>500 MHz – 18 GHz</strong> &nbsp;·&nbsp; Duration "
+                    f"<strong style='color:{theme.COLOR_TEXT};'>{snap0.get('max_duration_s', 30.0):.0f}s</strong>"
+                    f"</span>"
+                ),
+                badge_html="<span class='tech-badge badge-primary'>READY TO START</span>",
+            ),
+            unsafe_allow_html=True,
+        )
 
-        if last_record:
-            st.write("Live prediction for the currently scanned bands:")
-            live_rows = []
-            for band_id, features in runner.last_features.items():
-                pred = predictor.predict(features)
-                live_rows.append({
-                    "Band": band_id, "Predicted Intercept Time": pred["predicted_intercept_time"],
-                    "Predicted Interception Rate": pred["predicted_interception_rate"],
-                    "Quality": pred["prediction_quality"],
+    # KPI row: primary (6, hero/standard hierarchy) + "MISSION DETAILS" secondary
+    # row (4, visually quieter) - see dashboard/live_operations.py::render_kpi_bar.
+    live_operations.render_kpi_bar(engine)
+    snap = engine.get_snapshot()
+
+    # Mission Progress (redesign section D): a thin, restrained progress bar -
+    # step count and elapsed/remaining time are the exact same real fields the
+    # header/KPI row already compute (current_step/max_steps/simulated_time_s/
+    # max_duration_s); "remaining" is real arithmetic on two already-real
+    # numbers (max_duration_s - simulated_time_s), never a fabricated ETA.
+    mc_max_steps = snap.get("max_steps", snap.get("total_timesteps", 600))
+    mc_current_step = snap.get("timestep", snap.get("current_step", 0))
+    mc_max_dur = snap.get("max_duration_s", 30.0)
+    mc_sim_time = snap.get("simulated_time_s", snap.get("simulation_time_s", 0.0))
+    mc_progress_pct = (mc_current_step / max(1, mc_max_steps - 1)) * 100.0
+    st.markdown(
+        theme.mission_progress_bar(
+            mc_progress_pct,
+            step_label=f"{mc_current_step} / {mc_max_steps}",
+            elapsed_label=f"{mc_sim_time:.2f}s",
+            remaining_label=f"{max(0.0, mc_max_dur - mc_sim_time):.2f}s",
+        ),
+        unsafe_allow_html=True,
+    )
+
+    # Main operational workspace (redesign section E): Receiver Array (left) |
+    # Live Spectrum (right, more visual weight) - existing render functions/
+    # data only, no new computation. Receiver cards use compact=True here only
+    # (Mission Control's reduced-hierarchy card); the standalone RECEIVER ARRAY
+    # view still calls render_receiver_panel() directly with the unchanged default.
+    st.markdown(theme.section_divider("MAIN OPERATIONAL WORKSPACE"), unsafe_allow_html=True)
+    mc_c1, mc_c2 = st.columns([4, 6])
+    with mc_c1:
+        st.markdown(
+            f"<div class='channel-header' style='font-size:0.75rem;'>RECEIVER ARRAY &nbsp;"
+            f"<span style='color:{theme.COLOR_TEXT_FAINT}; text-transform:none; font-weight:500;'>"
+            f"({snap.get('k_channels', 5)} active channels)</span></div>",
+            unsafe_allow_html=True,
+        )
+        live_operations.render_receiver_strip(engine, compact=True)
+    with mc_c2:
+        active_bands_now = len(snap.get("selected_bands", []))
+        st.markdown(
+            f"<div class='channel-header' style='font-size:0.75rem;'>LIVE SPECTRUM &nbsp;"
+            f"<span style='color:{theme.COLOR_TEXT_FAINT}; text-transform:none; font-weight:500;'>"
+            f"({snap.get('n_bands', 50)} bands &nbsp;·&nbsp; step {mc_current_step} &nbsp;·&nbsp; "
+            f"{active_bands_now} active now)</span></div>",
+            unsafe_allow_html=True,
+        )
+        spectrum.render_live_spectrum_map(engine, show_ground_truth=False)
+
+    # Secondary operational information (redesign section F/G/H): recent
+    # decisions (left) | operator attention + alert summary (right). Concise,
+    # curated views - not the full Cognitive Engine / Alerts pages.
+    st.markdown(theme.section_divider("SECONDARY INFORMATION"), unsafe_allow_html=True)
+    sec_c1, sec_c2 = st.columns([6, 4])
+    with sec_c1:
+        st.markdown(
+            f"<div class='channel-header' style='font-size:0.75rem;'>RECENT DECISIONS &nbsp;"
+            f"<span style='color:{theme.COLOR_TEXT_FAINT}; text-transform:none; font-weight:500;'>"
+            f"(what the cognitive engine is doing right now)</span></div>",
+            unsafe_allow_html=True,
+        )
+        if hasattr(engine, "get_decision_history"):
+            dec_hist = engine.get_decision_history(window=6)
+        else:
+            dec_hist = list(getattr(engine, "decision_history", []))[:6]
+        if dec_hist:
+            def _dh(row, *keys, default="N/A"):
+                for k in keys:
+                    v = row.get(k)
+                    if v is not None:
+                        return v
+                return default
+
+            compact_rows = []
+            for r in dec_hist:
+                bands = _dh(r, "selected_bands", "Selected Bands", "Bands", default=[])
+                bands_txt = ", ".join(bands) if isinstance(bands, list) else str(bands)
+                reward_val = _dh(r, "step_reward", "Reward", "reward")
+                compact_rows.append({
+                    "Time (s)": _dh(r, "time_s", "Time (s)", "Time"),
+                    "Strategy": _dh(r, "strategy", "Strategy"),
+                    "Bands": bands_txt,
+                    "Reward": f"{reward_val:+.2f}" if isinstance(reward_val, (int, float)) else reward_val,
                 })
-            st.dataframe(live_rows, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(compact_rows), use_container_width=True, height=210, hide_index=True)
+        else:
+            st.markdown(theme.empty_state("No decisions recorded yet — mission not started."), unsafe_allow_html=True)
+    with sec_c2:
+        alerts.render_attention_required(engine)
+        st.markdown("<div style='height:0.5rem;'></div>", unsafe_allow_html=True)
+        alerts.render_alert_summary_counts(engine)
+        alerts.render_alerts_panel(engine, max_items=4)
+        if st.button("View all alerts →", key="btn_mc_view_all_alerts", use_container_width=True):
+            st.session_state["_pending_nav"] = "ALERTS"
+            st.rerun()
 
-# ---------------------------------------------------------------- Baseline
-with tabs[7]:
-    stage8 = load_json_artifact("results/stage8_results.json")
-    if stage8 is None:
-        st.info("Run `python demo_stage8.py` once to generate results/stage8_results.json.")
+    ophelp.render_bottom_status(snap)
+
+elif nav_view == "SPECTRUM":
+    st.markdown("---")
+    st.markdown("<div class='system-title'>LIVE RF SPECTRUM</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='system-subtitle'>{engine.get_snapshot().get('n_bands', 50)} FREQUENCY BANDS • 500 MHz – 18 GHz • "
+        f"{engine.get_snapshot().get('max_duration_s', 30.0):.0f} SECOND OPERATIONAL WINDOW • {operating_mode}</div>",
+        unsafe_allow_html=True,
+    )
+    ts_override = None
+    if operating_mode == "LIVE SIMULATION":
+        st.markdown("<span class='tech-badge badge-live'>● LIVE TELEMETRY</span>", unsafe_allow_html=True)
+        window_choice = st.radio(
+            "SPECTRUM DATA WINDOW", options=["LIVE WINDOW", "MISSION HISTORY"], horizontal=True,
+            key="spectrum_window_choice",
+            help="LIVE WINDOW: most recent ~60 steps (3s). MISSION HISTORY: every real step "
+                 "taken so far this mission, accumulated at the runtime layer.",
+        )
+        if window_choice == "MISSION HISTORY" and hasattr(engine, "get_mission_history_time_series"):
+            ts_override = engine.get_mission_history_time_series()
+            st.caption(f"Showing full accumulated mission history: {len(ts_override)} real steps recorded.")
+        else:
+            st.caption("Rolling window of the most recent steps.")
     else:
-        aggregates = stage8["aggregates"]
-        st.plotly_chart(viz.baseline_comparison_chart(aggregates), use_container_width=True)
-        st.dataframe([
-            {"Scheduler": name, "Pd": fmt(agg.get("pd_mean")), "Interception Rate": fmt(agg.get("interception_rate_mean")),
-             "Avg Reward": fmt(agg.get("avg_reward_mean")), "Redundant Scan Rate": fmt(agg.get("redundant_scan_rate_mean")),
-             "Avg Intercept Time": fmt(agg.get("avg_intercept_time_mean")),
-             "Reacquisition Time": fmt(agg.get("reacquisition_time_mean"))}
-            for name, agg in aggregates.items()
-        ], use_container_width=True, hide_index=True)
-        st.caption("Losses are shown, not hidden -- see CLAUDE.md/Stage 8 report for the honest breakdown.")
+        st.markdown("<span class='tech-badge badge-primary'>● POST-HOC VERIFIED DATA</span>", unsafe_allow_html=True)
 
-# ---------------------------------------------------------------- Why This Band
-with tabs[8]:
-    if not last_record:
-        st.info("Step the simulation first.")
+    spectrum_view_mode = st.radio(
+        "SPECTRUM VIEW", options=["WATERFALL", "SPECTRUM ANALYZER"], horizontal=True,
+        key="spectrum_view_mode",
+        help="WATERFALL: time-frequency history across all 50 bands (unchanged). "
+             "SPECTRUM ANALYZER: engineering power-vs-frequency view of the currently "
+             "tuned channels only - never a fabricated trace across unobserved bands.",
+    )
+    if spectrum_view_mode == "WATERFALL":
+        show_gt = st.checkbox("Overlay ground-truth activity (post-hoc validation only)", value=False, key="spectrum_show_gt")
+        spectrum.render_live_spectrum_map(engine, show_ground_truth=show_gt, time_series_override=ts_override)
+        st.caption("● RF ACTIVITY (ground truth, only when overlay enabled)   ◇ RECEIVER SCAN   ★ TRUE INTERCEPTION   ◆ FALSE ALARM   │ CURRENT TIME")
     else:
-        band_id = st.selectbox("Band", last_record["selected_bands"])
-        b = next(x for x in belief_state if x.band_id == band_id)
-        t = next(x for x in runner.temporal_state() if x.band_id == band_id)
-        s = next(x for x in scores if x.band_id == band_id)
-        st.subheader(f"WHY DID THE SYSTEM CHOOSE {band_id}?")
-        st.markdown(f"""
-- **Bayesian belief:** P(active) = `{b.activity_probability:.3f}`
-- **Uncertainty:** `{b.uncertainty:.4f}`
-- **Staleness:** `{b.staleness if b.staleness != float('inf') else 'never observed'}`
-- **Temporal prediction:** behaviour=`{t.behaviour_type}`, confidence=`{t.prediction_confidence:.3f}`
-- **Exploration score:** `{s.exploration_score:.3f}`
-- **Exploitation score:** `{s.exploitation_score:.3f}`
-- **Prediction score:** `{s.prediction_score:.3f}`
-- **Selected strategy:** `{current_strategy}`
-- **Final (selected-strategy) score:** `{getattr(s, current_strategy.lower() + '_score'):.3f}`
-""")
+        spectrum.render_spectrum_analyzer(engine)
+    st.markdown("---")
+    spectrum.render_band_inspector(engine)
+    ophelp.render_bottom_status(engine.get_snapshot())
 
-# ---------------------------------------------------------------- Architecture
-with tabs[9]:
-    st.markdown("""
-```
-RF Environment (hidden ground truth)
-        |
-Limited Receiver (K of 50 bands)
-        |
-Detection Physics (SNR -> P_d, false alarms)
-        |
-Bayesian Belief (Stage 3)
-        |
-Temporal Prediction (Stage 4)
-        |
-Strategy Scoring: explore/exploit/predict/balanced (Stage 5)
-        |
-Q-Learning Arbitrator (Stage 6) --------> selects ONE strategy
-        |
-Band Selection (Top-K under that strategy)
-        |
-Receiver observes -> hit/miss -> reward
-        |
-   (feeds back into Belief + Temporal + Q-table + Adaptive Emitter)
-        ^------------------------------------------------------------|
-```
-""")
+elif nav_view == "COGNITIVE ENGINE":
+    snap = engine.get_snapshot()
+    st.markdown("---")
+    st.markdown("<div class='system-title'>COGNITIVE DECISION ENGINE</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='system-subtitle'>OBSERVE → BELIEF → SCORE → SELECT → SCAN → DETECT → REWARD → LEARN • {operating_mode}</div>", unsafe_allow_html=True)
+    cognitive_pipeline.render_pipeline(snap, compact=False)
+    st.markdown("---")
+    decision_panel.render_decision_panel(engine)
+    st.markdown("---")
+    ophelp.render_what_makes_cognitive()
+    ophelp.render_bottom_status(snap)
 
-# ---------------------------------------------------------------- Live Metrics
-with tabs[10]:
-    tracker = runner.metrics_tracker  # public attributes read directly; no
-                                       # change made to Stage 8's EvaluationMetrics
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Scans", metrics["total_scans"])
-    m2.metric("Hits", metrics["total_hits"])
-    m3.metric("Misses", metrics["total_scans"] - metrics["total_hits"])
-    m4.metric("False Alarms", tracker.false_detections)
-    m5, m6, m7, m8 = st.columns(4)
-    m5.metric("Pd", fmt(metrics["pd"]))
-    m6.metric("Interception Rate", fmt(metrics["interception_rate"]))
-    m7.metric("Avg Reward", fmt(metrics["avg_reward"]))
-    m8.metric("Redundant Scan Rate", fmt(metrics["redundant_scan_rate"]))
+elif nav_view == "RECEIVER ARRAY":
+    snap = engine.get_snapshot()
+    st.markdown("---")
+    st.markdown("<div class='system-title'>SIMULATED RECEIVER ARRAY — CURRENT ALLOCATION</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='system-subtitle'>{snap.get('k_channels',5)} SIMULTANEOUS CHANNELS OF {snap.get('n_bands',50)} AVAILABLE BANDS • {operating_mode} • NO PHYSICAL RF HARDWARE — SIMULATION ONLY</div>",
+        unsafe_allow_html=True,
+    )
+    receiver_panel.render_receiver_panel(engine)
+    st.caption(
+        "Fields with no real data for the current run (SNR / amplitude / AoA / pulse "
+        "width not measurable for this observation) are shown as N/A — never invented."
+    )
+    ophelp.render_bottom_status(snap)
+
+elif nav_view == "TRACKS":
+    st.markdown("---")
+    tracks.render_tracks_view(engine)
+    st.markdown("---")
+    event_console.render_event_console(engine)
+    ophelp.render_bottom_status(engine.get_snapshot())
+
+elif nav_view == "ALERTS":
+    st.markdown("---")
+    alerts.render_alerts_view(engine)
+    ophelp.render_bottom_status(engine.get_snapshot())
+
+elif nav_view == "ANALYTICS":
+    st.markdown("---")
+    st.markdown("<div class='system-title'>ANALYTICS</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='system-subtitle'>THREE INDEPENDENT SECTIONS — NEVER MIXED: LIVE MISSION ANALYTICS (this session's active run) / SCENARIO EXPERIMENT LAB (isolated sandbox) / VERIFIED BENCHMARK (deterministic precomputed artifacts)</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<div class='system-title' style='font-size:1rem; color:#a371f7;'>LIVE MISSION ANALYTICS</div>", unsafe_allow_html=True)
+    lm = st.session_state.live_mission
+    lm_active = lm is not None and lm.mission_status in (LiveMissionStatus.RUNNING, LiveMissionStatus.PAUSED)
+    if lm is None or lm.get_snapshot()["total_scans"] == 0:
+        st.info("No live mission data yet. Switch to LIVE SIMULATION mode, press START MISSION, and return here.")
+    else:
+        performance.render_performance_monitor(lm)
+
+    st.markdown("---")
+    st.markdown("<div class='system-title' style='font-size:1rem; color:#00c853;'>SCENARIO EXPERIMENT LAB</div>", unsafe_allow_html=True)
+    if lm_active:
+        st.warning(
+            f"🛡 **ACTIVE LIVE MISSION PROTECTED** — a live mission is currently {lm.mission_status}. "
+            "This lab runs its own fully independent SimulationEngine instance; it can never overwrite, "
+            "reset, or pause your live mission, no matter what you run here."
+        )
+    else:
+        st.caption(
+            "🛡 Isolated sandbox: this lab always drives its own independent SimulationEngine "
+            "instance (`st.session_state.experiment_lab`), never the LIVE SIMULATION mission above — "
+            "running an experiment here cannot affect an active live mission."
+        )
+    if "experiment_lab" not in st.session_state or st.session_state.experiment_lab is None:
+        from simulation.engine import SimulationEngine as _SimEngine
+        st.session_state.experiment_lab = _SimEngine(
+            scenario_path=os.path.join(SCAN_DIR, "config_1.h5"), strategy_type="smart_scan", k_channels=5, seed=42,
+        )
+    system.render_scenario_lab(st.session_state.experiment_lab)
+
+    st.markdown("---")
+    st.markdown("<div class='system-title' style='font-size:1rem; color:#00e5ff;'>VERIFIED BENCHMARK (5-SCENARIO, DETERMINISTIC)</div>", unsafe_allow_html=True)
+    system.render_benchmark_suite(validated_scenarios)
+    ophelp.render_bottom_status(engine.get_snapshot())
+
+elif nav_view == "SYSTEM":
+    st.markdown("---")
+    system.render_architecture_overview(engine, operating_mode=operating_mode)
+    st.markdown("---")
+    system.render_system_health(engine)
+    system.render_health_matrix(engine, operating_mode=operating_mode)
+    st.markdown("---")
+    ophelp.render_data_integrity_indicator(operating_mode=operating_mode)
+    ophelp.render_bottom_status(engine.get_snapshot())
+
+# -----------------------------------------------------------------------------
+# 7. Mission Reporting & Telemetry Export — Audit Trail (section 24, available
+#    from every view; always exports the currently active engine's data)
+# -----------------------------------------------------------------------------
+st.markdown("---")
+st.markdown("<div class='channel-header' style='font-size:0.85rem;'>MISSION REPORTING & TELEMETRY EXPORT (AUDIT TRAIL)</div>", unsafe_allow_html=True)
+snap_exp = engine.get_snapshot()
+exp_c1, exp_c2, exp_c3 = st.columns(3)
+with exp_c1:
+    st.download_button(
+        "📥 EXPORT MISSION LOG (JSON)",
+        data=json.dumps(engine.export_report_json(), indent=2, default=str),
+        file_name=f"mission_report_{getattr(engine, 'mission_id', 'session')}_{snap_exp.get('scenario_name','scenario').replace('.h5','')}.json",
+        mime="application/json", use_container_width=True, key="exp_m_report_btn",
+    )
+with exp_c2:
+    st.download_button(
+        "📥 EXPORT EVENT TELEMETRY (CSV)",
+        data=engine.export_events_csv(),
+        file_name=f"rf_events_{getattr(engine, 'mission_id', 'session')}_{snap_exp.get('timestep', 0)}steps.csv",
+        mime="text/csv", use_container_width=True, key="exp_m_events_btn",
+    )
+with exp_c3:
+    st.download_button(
+        "📥 EXPORT TRACK / INTERCEPTION HISTORY (CSV)",
+        data=engine.export_tracks_csv(),
+        file_name=f"rf_tracks_{getattr(engine, 'mission_id', 'session')}_{snap_exp.get('timestep', 0)}steps.csv",
+        mime="text/csv", use_container_width=True, key="exp_m_tracks_btn",
+    )
+
+exp2_c1, exp2_c2, exp2_c3 = st.columns(3)
+with exp2_c1:
+    if hasattr(engine, "get_decision_history"):
+        dec_rows = engine.get_decision_history(window=600)
+    else:
+        dec_rows = list(getattr(engine, "decision_history", []))
+    dec_csv = pd.DataFrame(dec_rows).to_csv(index=False) if dec_rows else "No decision data recorded."
+    st.download_button(
+        "📥 EXPORT DECISION TRACE (CSV)", data=dec_csv,
+        file_name=f"decision_trace_{getattr(engine, 'mission_id', 'session')}.csv",
+        mime="text/csv", use_container_width=True, key="exp_m_decisions_btn",
+    )
+with exp2_c2:
+    band_counts = dict(getattr(engine, "band_scan_counts", {}))
+    receiver_csv = pd.DataFrame(list(band_counts.items()), columns=["Band", "Scan_Count"]).to_csv(index=False) if band_counts else "No receiver utilization data recorded."
+    st.download_button(
+        "📥 EXPORT RECEIVER UTILIZATION (CSV)", data=receiver_csv,
+        file_name=f"receiver_utilization_{getattr(engine, 'mission_id', 'session')}.csv",
+        mime="text/csv", use_container_width=True, key="exp_m_receiver_btn",
+    )
+with exp2_c3:
+    if hasattr(engine, "get_mission_history_summary"):
+        summary = engine.get_mission_history_summary()
+    else:
+        summary = {"note": "Mission summary is only computed for the LIVE runtime; use EXPORT MISSION LOG for REPLAY."}
+    st.download_button(
+        "📥 EXPORT MISSION SUMMARY (JSON)", data=json.dumps(summary, indent=2, default=str),
+        file_name=f"mission_summary_{getattr(engine, 'mission_id', 'session')}.json",
+        mime="application/json", use_container_width=True, key="exp_m_summary_btn",
+    )
+
+# Record UI render latency (attributed to the replay controller for backward-compat
+# with the sidebar telemetry line; harmless if the live runtime is currently active)
+t_render_end = time.perf_counter()
+controller.ui_latency_ms = (t_render_end - t_render_start) * 1000.0
+
+# -----------------------------------------------------------------------------
+# 8. Real-time execution loop pacer — thread-free, rerun-driven (section 19).
+#    Each rerun advances at most ONE real timestep; the full mission is never
+#    executed inline on a single rerun (section 17).
+# -----------------------------------------------------------------------------
+if operating_mode == "LIVE SIMULATION":
+    lm = st.session_state.live_mission
+    if lm is not None and lm.mission_status == LiveMissionStatus.RUNNING:
+        time.sleep(0.02)
+        lm.advance_time_tick()
+        st.rerun()
+else:
+    if controller.running:
+        if controller.current_step < controller.total_timesteps - 1:
+            spd = max(0.5, float(controller.speed))
+            delay_s = max(0.015, 0.05 / spd)
+            time.sleep(delay_s)
+            controller.step(1)
+            st.rerun()
+        else:
+            controller.mission_completed = True
+            controller.running = False
+            st.rerun()

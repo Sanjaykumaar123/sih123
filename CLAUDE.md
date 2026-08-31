@@ -13,20 +13,28 @@ tree "just in case."
   they're all in there (N=50, K=5, Bayesian/RF/Q-learning design, reward
   function, metrics). Read PROJECT_SPEC.md instead of asking the user to
   re-explain the design.
-- **Current stage: Stage 11 (final integration, stress testing, prototype
-  readiness) implemented, tests passing, awaiting user review/approval.
-  This is the FINAL stage — the project's full sequence (0–11) is
-  complete pending this approval. Prototype readiness: READY WITH MINOR
-  FIXES (see chat for the full Stage 11 report).** Do NOT start any
-  further stage/feature without being asked. (Stage 9's Random Forest is
-  the FIRST place Random Forest actually appears in this project — Stage
-  4's originally-planned RF emitter classifier was never built,
-  deliberately deferred per that stage's own scope; Stage 9 covers a
-  different job: predicting interception time/rate, not classifying
-  emitter type.)
-- Update the "Current stage" line above yourself whenever a stage is
+- **Stages 0–11 (the original approved scope, per PROJECT_SPEC.md §6) are
+  complete** — see the "Repo layout" section below for the unchanged
+  historical record of that work. (Stage 9's Random Forest is the FIRST
+  place Random Forest actually appears in this project — Stage 4's
+  originally-planned RF emitter classifier was never built, deliberately
+  deferred per that stage's own scope; Stage 9 covers a different job:
+  predicting interception time/rate, not classifying emitter type.)
+- **Beyond that, a second, much larger "operational workstation" layer
+  has since been built — self-labeled by its own docstrings as "Stage
+  12" (jury demo mode), "Step 13" (production operational application),
+  "Stage 14" (production dashboard/simulation engine), and a "Final
+  Productionization Phase" — none of which was ever logged in this file
+  as it happened, so this file was badly stale until reconstructed by
+  reading the tree on 2026-08-30. See "Operational workstation layer"
+  below for what's actually there.** Test suite is now 253 tests total
+  (141 from Stages 0–11 + 112 from this layer), all collectable; not all
+  have been re-run/verified in this reconstruction pass.
+- Do NOT start any further stage/feature without being asked.
+- Update the "Current stage" section above yourself whenever a stage is
   completed and approved, so the next session doesn't need to grep the
-  repo or ask the user to re-explain progress.
+  repo or ask the user to re-explain progress. (This section's staleness
+  is exactly the failure mode to avoid repeating.)
 
 ## Stage gate rule (hard constraint from the user)
 
@@ -46,7 +54,10 @@ files not called for by the current stage.
 - Don't install packages without asking; keep dependencies minimal.
   Installed so far: numpy, pyyaml, pytest (Stage 1), scikit-learn (Stage 9,
   already present), streamlit + plotly (Stage 10, plotly installed via pip
-  since Stage 10 explicitly required it) — nothing else assumed.
+  since Stage 10 explicitly required it), h5py + pandas (operational
+  workstation layer — reads real TSRD HDF5 scenario files and builds
+  DataFrames for dashboard tables) — nothing else assumed. No
+  `requirements.txt` exists; nothing pins versions.
 - Don't create files beyond what the current stage needs.
 
 ## Repo layout (update this as files are actually created)
@@ -203,13 +214,16 @@ files not called for by the current stage.
 - `dashboard/visualizations.py` — Plotly figure builders only (waterfall,
   belief line chart, Q-value bars, reward history, baseline comparison
   bars) — pure presentation over already-computed data, no new formulas.
-- `app.py` — Streamlit dashboard (`streamlit run app.py`): KPI cards,
-  11 tabs (Spectrum/Band Priority/Belief/Temporal/Q-Learning/Adaptive
-  Evasion/Predictive ML/Baseline Comparison/Why This Band/Architecture/
-  Live Metrics), sidebar Step/Run N/Reset/seed/auto-run controls. Loads
+- `app.py` (AS OF STAGE 10) — Streamlit dashboard: KPI cards, 11 tabs
+  (Spectrum/Band Priority/Belief/Temporal/Q-Learning/Adaptive Evasion/
+  Predictive ML/Baseline Comparison/Why This Band/Architecture/Live
+  Metrics), sidebar Step/Run N/Reset/seed/auto-run controls. Loaded
   `results/stage8_results.json` and `results/stage9_results.json` +
   `results/stage9_predictor.pkl` via `@st.cache_data`/`@st.cache_resource`
-  — never retrains on refresh.
+  — never retrained on refresh. **`app.py` has since been completely
+  rewritten by the operational workstation layer below — this bullet is
+  kept only as the historical Stage 10 record, it no longer describes
+  the file on disk.**
 - `demo_stage10.py` — terminal walkthrough of the same real closed loop
   (no Streamlit); reports evasion/re-acquisition honestly (whatever
   actually happens that run) + Stage 8/9 loaded results.
@@ -268,10 +282,126 @@ files not called for by the current stage.
   `detection_count`/`recent_detection_times`/`evasive_mode` fields exist
   but are unused until a scheduler exists (later stage wires reactions).
 
+## Operational workstation layer (Stage 12+, built without updating this file)
+
+Reconstructed 2026-08-30 by reading the tree, not from any prior log —
+treat details here as a snapshot, not as carefully cross-checked as the
+Stage 0–11 section above. This layer sits **on top of** the Stage 0–11
+core (`rf_env/`) and reuses its engines unmodified; it does not replace
+them. Ask the user before treating this as "current work" — confirm
+what's actually active before building further on it.
+
+- **Real dataset, not the Stage 1–11 synthetic simulator.** `dataset/`
+  holds the **Turing Synthetic Radar Dataset (TSRD)** — public HDF5 radar
+  pulse-train recordings (`scan/`, `stare/`, `archive/`, ~65GB total; see
+  `dataset/README.md`). Do not read these files directly/in bulk — load
+  via the adapter. `500–18000 MHz` continuous frequency, mapped to the
+  same `F01`–`F50` / `N=50` scheme as `rf_env`.
+- `data_adapter/` — the TSRD integration package (`README.md` has the
+  full contract): `tsrd_loader.py` (raw HDF5 reader), `frequency_mapper.py`
+  (continuous MHz → F01–F50), `pdw_processor.py` (bins pulses into
+  discrete time steps), `truth_manager.py` (ground truth, sequestered —
+  same zero-leakage discipline as `rf_env`), `scenario_builder.py` ->
+  `TSRDEnvironment`, built to the **exact same interface** as
+  `RFEnvironment` so it plugs into `Receiver`/`BeliefEngine`/
+  `TemporalEngine`/`BandScoringEngine`/`QLearningArbitrator`/
+  `EvaluationMetrics` unmodified. `data/tsrd_adapter.py` and
+  `data/scenario_loader.py` are thin re-export/wrapper shims over this
+  package and over `dashboard/scenario_loader.py`.
+  `dashboard/scenario_loader.py` hardcodes absolute Windows paths
+  (`D:\sih\results`, `D:\sih\dataset\scan\test_scan`) — no config.yaml
+  section exists for this layer at all.
+- **Three separate, overlapping engine implementations exist** — looks
+  like iterative rewrites that were never cleaned up, not a deliberate
+  layering. Treat this as a known wart, not a design to extend:
+  - `core/engine.py` -> `OperationalEngine`, used by `engine/mission_engine.py`'s
+    `MissionEngine` (+ `engine/state_manager.py`'s `StateManager`,
+    `engine/execution_loop.py`'s threaded `ExecutionWorker`).
+  - `simulation/engine.py` -> `SimulationEngine` (its own docstring says
+    "Stage 14"; uses `simulation/clock.py`'s `SimulationClock`), used by
+    `services/mission_engine.py`'s *different* `MissionEngine` class,
+    whose docstring calls itself "single source of truth for operational
+    simulation execution."
+  - Most of `core/*.py` (`belief.py`, `temporal.py`, `scoring.py`,
+    `q_learning.py`, `receiver.py`, `detector.py`, `environment.py`,
+    `bayesian.py`, `band_scoring.py`, `observation.py`, `policy.py`,
+    `tracking.py` — all ~5 lines) are just re-export shims back to
+    `rf_env`, not new implementations. `core/reward.py` re-exports
+    `rf_env`'s `RewardTracker` plus one new function,
+    `compute_evaluated_step_reward`. `core/tracker.py` (own "Stage 14"
+    docstring) is a real new module: clusters observations into
+    internal signal tracks (confirm/degrade/expire lifecycle) without
+    ground-truth access. `core/state.py` holds the shared
+    `EngineStatus`/`ChannelState`/`TrackStatus`/`StrategyMode`/
+    `SystemHealth`/`MissionState` enums/dataclasses used across all
+    three engines. `core/events.py` defines `TelemetryEvent`/`EventType`/
+    `EventSeverity`. `core/data_source.py` is a `SignalSource` ABC with
+    `TSRDSignalSource`/`ReplaySignalSource`/(a stubbed)
+    `HardwareSignalSource` — the hardware branch is a placeholder only,
+    no real RF hardware/SDR is wired in (still respects the hard
+    constraint below). `core/playback_controller.py` — a *fourth* runtime
+    path: replays the precomputed `results/operational_evaluation_config_
+    {1..5}.json` time series (from `experiments/operational_evaluation.py`)
+    rather than driving any of the three live engines; this is what
+    `app.py` actually uses today (see below).
+  - `evaluation/` and `experiments/` are mostly thin wrappers too:
+    `evaluation/metrics.py` re-exports `rf_env`'s `EvaluationMetrics`;
+    `evaluation/benchmark.py` re-exports `experiments/compare_strategies.py`'s
+    `compare_strategies` and `experiments/operational_evaluation.py`'s
+    `run_operational_evaluation`. The latter is the real 600-step
+    (30.0s) benchmark runner that produced
+    `results/operational_evaluation_config_{1..5}.json` (per-emitter
+    interception records, 600-step time series, 50×600 activity
+    matrices, full Q-learning/decision trace) — those 5 files are what
+    `core/playback_controller.py` and most of `dashboard/` actually
+    render.
+- `app.py` — **current, real entry point** (`streamlit run app.py`).
+  Production-styled "Cognitive RF Spectrum Management Workstation" with
+  a sidebar `WORKSTATION MODE` radio: LIVE SIMULATION / SCENARIO REPLAY /
+  ANALYSIS. Drives everything through `core.playback_controller.PlaybackController`
+  (replaying the 5 precomputed operational-evaluation JSONs above, not a
+  live `rf_env`/TSRD loop) and imports only 8 of the `dashboard/` panel
+  modules: `live_operations`, `receiver_panel`, `decision_panel`,
+  `spectrum`, `tracks`, `performance`, `event_console`, `system`.
+- `dashboard/` panel modules actually wired into `app.py`:
+  `live_operations.py` (status bar/mission controls/KPI bar),
+  `receiver_panel.py` (5-channel receiver hardware view),
+  `decision_panel.py` (strategy + 50-band ranking + reasoning),
+  `spectrum.py` (time-frequency waterfall), `tracks.py` (internal track
+  table), `performance.py` (learning/KPI monitor), `event_console.py`
+  (filterable scrolling telemetry + CSV export), `system.py` (scenario
+  lab + benchmark suite; pulls in `multiscenario.py` for aggregate stats
+  across the 5 config JSONs). `visualizations.py` is the unchanged
+  Stage 10 Plotly-builders module, still used.
+  **Not wired into `app.py` — implemented and tested, but currently
+  orphaned/unintegrated:** `scheduler_view.py` and `events.py` (earlier
+  versions of `decision_panel.py`/`event_console.py`, referenced only
+  from `tests/test_operational_workstation.py` and
+  `tests/test_workstation_integration.py`), and `jury_demo.py` (a guided
+  6-stage jury-presentation mode over the 5 config JSONs, self-labeled
+  "Stage 12", covered by `tests/test_jury_mode.py` but there is no
+  "JURY DEMO" option in `app.py`'s mode radio — confirm with the user
+  before assuming it should be).
+- `results/missions/mission_MSN-*.json` + `logs/mission.log` — output
+  artifacts from `engine/mission_engine.py`/`services/mission_engine.py`
+  runs (the two non-playback engine paths above).
+- New test files beyond `tests/test_stage{1..11}.py` (112 tests total,
+  collected via `python -m pytest tests/ --collect-only -q`; not all
+  re-run in this pass): `test_data_adapter.py`, `test_mission_engine.py`,
+  `test_tracker.py`, `test_operational_runtime.py`,
+  `test_operational_workstation.py`, `test_realtime_simulation.py`,
+  `test_runtime_execution_fix.py`, `test_playback_runtime.py`,
+  `test_strategy_comparison.py`, `test_step13_operational_application.py`,
+  `test_final_workstation_production.py`, `test_workstation_integration.py`,
+  `test_ui_integration.py`, `test_live_operations_ui.py`,
+  `test_multiscenario_ui.py`, `test_jury_mode.py`.
+
 ## Working conventions
 
-- This is a **non-git** local folder as of Stage 0. If a stage's work
-  should be versioned, ask before running `git init`.
+- This folder **is now a git repo** (`git init` + one "Initial commit"
+  already done — see `git log`). Most of the operational-workstation
+  layer above is currently uncommitted/untracked; check `git status`
+  before assuming what's saved.
 - Keep responses and diffs scoped to the current stage only.
 - When resuming a session: read this file + PROJECT_SPEC.md's §6 stage
   list, check "Current stage" above, and confirm with the user what to

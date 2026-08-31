@@ -3,22 +3,22 @@
     "belief_activity_probability",
     "belief_uncertainty",
     "staleness",
+    "hit_count",
+    "miss_count",
+    "number_of_observations",
     "temporal_periodicity_score",
-    "temporal_prediction_confidence",
     "estimated_period",
     "predicted_next_active_time_distance",
-    "recent_hit_rate",
-    "recent_miss_rate",
-    "recent_average_snr",
-    "number_of_observations",
+    "prediction_confidence",
+    "time_since_last_hit",
     "number_of_hits",
-    "current_timestep",
-    "current_strategy",
-    "current_strategy_score",
-    "exploration_score",
-    "exploitation_score",
-    "prediction_score",
-    "balanced_score"
+    "score_exploration",
+    "score_exploitation",
+    "score_prediction",
+    "score_balanced",
+    "strategy_is_explore",
+    "strategy_is_exploit",
+    "strategy_is_predict"
   ],
   "prediction_horizon": 100,
   "train_seeds": [
@@ -51,32 +51,32 @@
   "n_train_samples": 25000,
   "n_val_samples": 12500,
   "n_test_samples": 12500,
-  "generation_seconds": 18.72,
-  "training_seconds": 20.52,
+  "generation_seconds": 51.37,
+  "training_seconds": 30.51,
   "val_metrics": {
     "intercept_time": {
       "random_forest": {
-        "mae": 11.8674,
-        "rmse": 20.48,
-        "r2": 0.5691
+        "mae": 28.788587671683324,
+        "rmse": 34.93107182552675,
+        "r2": 0.3142814554674085
       },
       "mean_baseline": {
-        "mae": 25.9407,
-        "rmse": 31.5191,
-        "r2": -0.0206
+        "mae": 39.527607104000005,
+        "rmse": 42.200889652745474,
+        "r2": -0.0008414521063002667
       },
       "n_samples": 12500
     },
     "interception_rate": {
       "random_forest": {
-        "mae": 0.0372,
-        "rmse": 0.0691,
-        "r2": 0.8923
+        "mae": 0.03941931441951961,
+        "rmse": 0.08349250631362598,
+        "r2": 0.9524994047197143
       },
       "mean_baseline": {
-        "mae": 0.1342,
-        "rmse": 0.2116,
-        "r2": -0.0108
+        "mae": 0.2993327424,
+        "rmse": 0.3831683880290753,
+        "r2": -0.00042238318793508256
       },
       "n_samples": 12500
     }
@@ -84,185 +84,185 @@
   "test_metrics": {
     "intercept_time": {
       "random_forest": {
-        "mae": 11.8038,
-        "rmse": 20.7826,
-        "r2": 0.6241
+        "mae": 28.873028474380188,
+        "rmse": 35.216058243668655,
+        "r2": 0.29774351276904665
       },
       "mean_baseline": {
-        "mae": 27.5049,
-        "rmse": 33.9848,
-        "r2": -0.0052
+        "mae": 39.565943833599995,
+        "rmse": 42.11944238614751,
+        "r2": -0.004568367663024375
       },
       "n_samples": 12500
     },
     "interception_rate": {
       "random_forest": {
-        "mae": 0.036,
-        "rmse": 0.0688,
-        "r2": 0.9224
+        "mae": 0.04183781361970841,
+        "rmse": 0.09181391550595587,
+        "r2": 0.942730544611375
       },
       "mean_baseline": {
-        "mae": 0.1539,
-        "rmse": 0.2469,
-        "r2": -0.0
+        "mae": 0.2991211456,
+        "rmse": 0.3838532769785873,
+        "r2": -0.001005677592790244
       },
       "n_samples": 12500
     }
   },
   "feature_importance_time": [
     [
-      "recent_average_snr",
-      0.675963129566076
+      "belief_activity_probability",
+      0.3704158212940876
     ],
     [
-      "recent_hit_rate",
-      0.07714269149468846
-    ],
-    [
-      "exploitation_score",
-      0.05296242642102655
-    ],
-    [
-      "belief_uncertainty",
-      0.03504619733942574
+      "score_exploitation",
+      0.3356792979765662
     ],
     [
       "estimated_period",
-      0.03365377425145145
+      0.09655925684113974
     ],
     [
-      "belief_activity_probability",
-      0.03288818399637515
-    ],
-    [
-      "current_timestep",
-      0.022614118606856807
-    ],
-    [
-      "temporal_periodicity_score",
-      0.01806345573630619
-    ],
-    [
-      "number_of_observations",
-      0.015793856459942895
-    ],
-    [
-      "temporal_prediction_confidence",
-      0.009078735595797449
-    ],
-    [
-      "current_strategy_score",
-      0.0048333889380511455
+      "prediction_confidence",
+      0.03842652221636687
     ],
     [
       "number_of_hits",
-      0.004431778551001022
+      0.034607312481559634
     ],
     [
-      "balanced_score",
-      0.004296995453199439
+      "hit_count",
+      0.032624578951060836
     ],
     [
-      "exploration_score",
-      0.003837749645109454
+      "temporal_periodicity_score",
+      0.02491549358085848
     ],
     [
-      "prediction_score",
-      0.0025464852895476344
+      "time_since_last_hit",
+      0.016244642740975614
     ],
     [
-      "predicted_next_active_time_distance",
-      0.0021174167353284674
+      "miss_count",
+      0.011851444329326097
+    ],
+    [
+      "belief_uncertainty",
+      0.010940385097652569
+    ],
+    [
+      "number_of_observations",
+      0.008432831649521523
+    ],
+    [
+      "score_balanced",
+      0.006554014759377856
+    ],
+    [
+      "score_exploration",
+      0.0037069452315138065
+    ],
+    [
+      "score_prediction",
+      0.0028328578732925874
+    ],
+    [
+      "strategy_is_predict",
+      0.0018740365727895768
     ],
     [
       "staleness",
-      0.001920267340117868
+      0.0017580036762223877
     ],
     [
-      "recent_miss_rate",
-      0.0018766822801607609
+      "predicted_next_active_time_distance",
+      0.00140666813694372
     ],
     [
-      "current_strategy",
-      0.0009326662995376839
+      "strategy_is_exploit",
+      0.0011698865907449263
+    ],
+    [
+      "strategy_is_explore",
+      0.0
     ]
   ],
   "feature_importance_rate": [
     [
-      "recent_hit_rate",
-      0.6126856296811239
-    ],
-    [
       "belief_activity_probability",
-      0.16651852443842546
+      0.5221660732488722
     ],
     [
-      "exploitation_score",
-      0.11092093809931164
-    ],
-    [
-      "recent_average_snr",
-      0.07869428469860182
-    ],
-    [
-      "current_timestep",
-      0.005405186167805941
-    ],
-    [
-      "balanced_score",
-      0.004604912497219704
-    ],
-    [
-      "number_of_hits",
-      0.0032709190800101363
-    ],
-    [
-      "temporal_prediction_confidence",
-      0.002974031505757282
-    ],
-    [
-      "estimated_period",
-      0.0020977575927779335
+      "score_exploitation",
+      0.4645804068942405
     ],
     [
       "belief_uncertainty",
-      0.00208765002664692
-    ],
-    [
-      "number_of_observations",
-      0.0020849398703514195
-    ],
-    [
-      "temporal_periodicity_score",
-      0.0017917183584767896
-    ],
-    [
-      "current_strategy",
-      0.0015552543857754598
-    ],
-    [
-      "recent_miss_rate",
-      0.0014506264522376497
-    ],
-    [
-      "exploration_score",
-      0.001435758118828704
-    ],
-    [
-      "current_strategy_score",
-      0.0007166506888335772
-    ],
-    [
-      "prediction_score",
-      0.0006303275039772512
-    ],
-    [
-      "staleness",
-      0.0005712488494113667
+      0.002725421123799174
     ],
     [
       "predicted_next_active_time_distance",
-      0.0005036419844270639
+      0.0020282348797015163
+    ],
+    [
+      "score_balanced",
+      0.0016247986095015536
+    ],
+    [
+      "prediction_confidence",
+      0.0015767710171826694
+    ],
+    [
+      "estimated_period",
+      0.001393190523422659
+    ],
+    [
+      "temporal_periodicity_score",
+      0.0008937177669278779
+    ],
+    [
+      "miss_count",
+      0.0005212705000950435
+    ],
+    [
+      "score_exploration",
+      0.000444106573489115
+    ],
+    [
+      "score_prediction",
+      0.0004116763672134926
+    ],
+    [
+      "time_since_last_hit",
+      0.00035714135681994604
+    ],
+    [
+      "number_of_hits",
+      0.00031413197423460086
+    ],
+    [
+      "strategy_is_exploit",
+      0.00027554993603391703
+    ],
+    [
+      "hit_count",
+      0.00025668045582721805
+    ],
+    [
+      "staleness",
+      0.00020768188784084173
+    ],
+    [
+      "number_of_observations",
+      0.00019126727529590525
+    ],
+    [
+      "strategy_is_predict",
+      3.187960950167259e-05
+    ],
+    [
+      "strategy_is_explore",
+      0.0
     ]
   ]
 }

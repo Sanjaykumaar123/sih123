@@ -1,3 +1,37 @@
-"""Stage 10: dashboard integration layer. Pure presentation/orchestration
--- no new scheduler, no new ML. See simulation_runner.py and
-visualizations.py."""
+"""Stage 14: Operational dashboard workstation components."""
+
+from dashboard import (
+    live_operations,
+    receiver_panel,
+    decision_panel,
+    spectrum,
+    tracks,
+    performance,
+    event_console,
+    system,
+    visualizations,
+    scenario_loader,
+    multiscenario,
+    theme,
+    alerts,
+    cognitive_pipeline,
+    help,
+)
+
+__all__ = [
+    "live_operations",
+    "receiver_panel",
+    "decision_panel",
+    "spectrum",
+    "tracks",
+    "performance",
+    "event_console",
+    "system",
+    "visualizations",
+    "scenario_loader",
+    "multiscenario",
+    "theme",
+    "alerts",
+    "cognitive_pipeline",
+    "help",
+]

@@ -5,7 +5,6 @@ __pycache__/
 *.pyd
 
 # Environments
-rf_env/
 env/
 venv/
 ENV/
@@ -20,3 +19,10 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Large dataset files
+dataset/.cache/
+dataset/archive/
+dataset/scan/
+dataset/stare/
+*.h5
