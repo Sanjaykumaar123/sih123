@@ -126,7 +126,7 @@ def render_top_status_bar(engine: Any) -> None:
             engine.step(num_steps=1)
             st.rerun()
     with ctl_cols[2]:
-        if st.button("⏭ STEP +10", use_container_width=True, disabled=is_running or is_complete, key="btn_ops_step10",
+        if st.button("⏭ STEP+10", use_container_width=True, disabled=is_running or is_complete, key="btn_ops_step10",
                       help="Advance ten simulation timesteps for rapid inspection."):
             engine.step(num_steps=10)
             st.rerun()
@@ -208,44 +208,22 @@ def render_kpi_bar(engine: Any) -> None:
     # signals and get the louder 'hero' card treatment; MISSION TIME / SCANS /
     # CUMULATIVE REWARD stay at the standard size. Same 6 real fields/values as
     # before - only which ones visually dominate changed.
-    primary = [
-        ("MISSION TIME", f"{sim_time_s:.2f}s", f"{current_step} steps", "neutral", "◷", theme.COLOR_PRIMARY, "standard"),
-        ("PROGRESS", f"{progress_pct:.0f}%", f"{current_step} / {max_steps}", "neutral", "▤", theme.COLOR_PRIMARY, "hero"),
-        ("SCANS", dash(total_scans), (f"K={snap.get('k_channels', 5)} dwells" if started else "Mission not started"), "neutral", "◉", theme.COLOR_PRIMARY, "standard"),
-        ("DETECTIONS", dash(snap.get("true_detections", 0)), ("Confirmed hits" if started else "Mission not started"), ("up" if started else "neutral"), "✓", theme.COLOR_NOMINAL, "hero"),
-        ("ACTIVE TRACKS", dash(snap.get("active_tracks_count", 0)), (f"{snap.get('total_tracks_count', 0)} formed" if started else "Mission not started"), "neutral", "◈", theme.COLOR_COGNITIVE, "hero"),
-        ("CUMULATIVE REWARD", (f"{cum_val:+.1f}" if started else "—"), ("Total score" if started else "Mission not started"), reward_dir, "Σ", theme.COLOR_PRIMARY, "standard"),
-    ]
-    p_cols = st.columns(6)
-    for col, (lbl, val, delta, ddir, icon, icon_color, size) in zip(p_cols, primary):
-        with col:
-            st.markdown(theme.kpi_card(lbl, val, delta, ddir, icon, icon_color, size=size), unsafe_allow_html=True)
-
-    st.markdown("<div class='channel-header' style='font-size:0.68rem; margin-top:0.6rem;'>MISSION DETAILS</div>", unsafe_allow_html=True)
-
-    cycles_val = snap.get("health", {}).get("total_cycles_executed", current_step)
     pfa_val = snap.get("pfa", 0.0)
-    emitters_val = snap.get("unique_emitters_count")
     rew_val = snap.get("latest_reward", 0.0)
-    secondary = [
-        ("Cycles", dash(cycles_val), "Cognitive steps"),
-        ("False Alarms", dash(snap.get("false_alarms", 0)), (f"{pfa_val*100:.2f}% Pfa" if started else "—")),
-        ("Emitters", (dash(emitters_val) if emitters_val is not None else "N/A"), ("Acquired" if started else "Mission not started")),
-        ("Current Reward", (f"{rew_val:+.2f}" if started else "—"), "Step reward"),
+    pd_val = snap.get("sensor_pd", 0.0)
+
+    cards = [
+        ("MISSION PROGRESS", f"{progress_pct:.0f}%", f"Step {current_step}/{max_steps} · {sim_time_s:.2f}s", "neutral", theme.COLOR_PRIMARY),
+        ("TRUE DETECTIONS", dash(snap.get("true_detections", 0)), f"Pd = {pd_val:.0%} · Confirmed" if started else "Mission not started", "up" if started else "neutral", theme.COLOR_NOMINAL),
+        ("SPECTRUM SCANS", dash(total_scans), f"K=5 Channels · {pfa_val*100:.1f}% Pfa" if started else "Mission not started", "neutral", theme.COLOR_PRIMARY),
+        ("ACTIVE TRACKS", dash(snap.get("active_tracks_count", 0)), f"{snap.get('total_tracks_count', 0)} Formed · Live Tracks" if started else "Mission not started", "neutral", theme.COLOR_COGNITIVE),
+        ("CUMULATIVE REWARD", f"{cum_val:+.1f}" if started else "—", f"Step Reward {rew_val:+.2f}" if started else "Mission not started", reward_dir, theme.COLOR_PRIMARY),
     ]
-    s_cols = st.columns(4)
-    for col, (lbl, val, sub) in zip(s_cols, secondary):
+
+    p_cols = st.columns(5)
+    for col, (lbl, val, delta, ddir, color) in zip(p_cols, cards):
         with col:
-            st.markdown(
-                f"""
-                <div class='metric-card metric-card-quiet'>
-                    <div class='metric-lbl'>{lbl}</div>
-                    <div class='metric-val' style='font-size:0.98rem;'>{val}</div>
-                    <div class='metric-imp imp-neutral'>{sub}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.markdown(theme.kpi_card(lbl, val, delta, ddir, icon=None, icon_color=color, size="hero"), unsafe_allow_html=True)
 
 
 def render_replay_scrubber(controller: Any) -> None:

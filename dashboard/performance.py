@@ -37,12 +37,14 @@ def render_performance_monitor(engine: Any) -> None:
     """Render live performance metrics, learning history, and strategy distributions."""
     snap = engine.get_snapshot()
 
-    from dashboard import theme
     st.markdown(
-        f"<div class='system-title'>COGNITIVE LEARNING & PERFORMANCE MONITOR</div> {theme.provenance_badge('REAL')}",
+        """
+        <div style='font-size:1.3rem; font-weight:800; color:#F3F4F6; font-family:"Outfit"; letter-spacing:0.04em; margin-bottom:0.75rem;'>
+            LIVE MISSION ANALYTICS
+        </div>
+        """,
         unsafe_allow_html=True,
     )
-    st.markdown("<div class='system-subtitle'>REINFORCEMENT LEARNING REWARD, STRATEGY DISTRIBUTION, AND SENSING EFFICIENCY — THIS SESSION'S ACTIVE LIVE MISSION ONLY</div>", unsafe_allow_html=True)
 
     kpi_cols = st.columns(6)
     started = snap["total_scans"] > 0

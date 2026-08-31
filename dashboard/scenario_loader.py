@@ -13,8 +13,12 @@ import math
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-RESULTS_DIR = r"D:\sih\results"
-SCAN_DIR = r"D:\sih\dataset\scan\test_scan"
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_RESULTS_DIR = os.path.join(_BASE_DIR, "results")
+DEFAULT_SCAN_DIR = os.path.join(_BASE_DIR, "dataset", "scan", "test_scan")
+
+RESULTS_DIR = r"D:\sih\results" if os.path.exists(r"D:\sih\results") else DEFAULT_RESULTS_DIR
+SCAN_DIR = r"D:\sih\dataset\scan\test_scan" if os.path.exists(r"D:\sih\dataset\scan\test_scan") else DEFAULT_SCAN_DIR
 
 
 @dataclass

@@ -6,19 +6,12 @@ Zero fabricated data.
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
 import plotly.graph_objects as go
 import numpy as np
+from plotly.subplots import make_subplots
 
 NUM_BANDS = 50
 BAND_NAMES = [f"F{i:02d}" for i in range(1, NUM_BANDS + 1)]
-
-# 0 = not scanned this step, 1 = scanned + miss, 2 = scanned + hit
-_COLORSCALE = [
-    (0.0, "#1e222b"), (0.34, "#1e222b"),
-    (0.34, "#c0392b"), (0.67, "#c0392b"),
-    (0.67, "#27ae60"), (1.0, "#27ae60"),
-]
 
 
 def get_band_freq_range(band_id: str, f_min: float = 500.0, f_max: float = 18000.0) -> tuple[float, float, float]:
@@ -31,163 +24,89 @@ def get_band_freq_range(band_id: str, f_min: float = 500.0, f_max: float = 18000
     return b_min, b_max, b_center
 
 
-def spectrum_activity_map(
-    time_series: List[Dict[str, Any]],
-    current_t: int,
-    window_steps: int = 100,
-    strategy_view: str = "smart_scan",
-) -> go.Figure:
-    """Render interactive 2D Time-Frequency Activity Map (Bands F01-F50 vs Time)."""
+def spectrum_activity_map(time_series: List[Dict[str, Any]], current_t: int, strategy_view: str = "smart_scan", window_steps: int = 100) -> go.Figure:
+    """Render full accumulated real mission history spectrum matrix from Step 0 to current_t."""
     total_steps = len(time_series)
-    start_t = max(0, current_t - window_steps + 1)
-    end_t = min(total_steps, max(current_t + 1, start_t + window_steps))
-    window_data = time_series[start_t:end_t]
+    if not time_series:
+        fig = go.Figure()
+        fig.update_layout(title="No Spectrum Data Available", paper_bgcolor="#07090E", plot_bgcolor="#0F131D")
+        return fig
 
-    fig = go.Figure()
+    # Display full recorded mission history from Step 0 up to current_t
+    end_t = min(total_steps, max(current_t + 1, 1))
+    window_data = time_series[:end_t]
 
-    # 1. Ground Truth Active Events
-    gt_times, gt_bands, gt_hover = [], [], []
-    for d in window_data:
-        t_sec = d["simulated_time_s"]
-        for b in d["env_active_bands"]:
-            b_min, b_max, _ = get_band_freq_range(b)
-            gt_times.append(t_sec)
-            gt_bands.append(b)
-            gt_hover.append(f"Band: {b} ({b_min:.0f}-{b_max:.0f} MHz)<br>Time: {t_sec:.2f}s (t={d['timestep']})<br>Status: Ground-Truth Active Pulse")
-
-    if gt_times:
-        fig.add_trace(go.Scatter(
-            x=gt_times,
-            y=gt_bands,
-            mode="markers",
-            name="Ground-Truth Active",
-            marker=dict(symbol="square", size=9, color="rgba(110, 118, 129, 0.45)", line=dict(width=1, color="#2d2d30")),
-            text=gt_hover,
-            hoverinfo="text",
-        ))
-
-    # 2. Strategy Scans & Detections
+    x_steps = [d.get("timestep", d.get("step", idx)) for idx, d in enumerate(window_data)]
     sel_key = "smart_scan_selected" if strategy_view == "smart_scan" else "open_loop_selected"
     true_key = "smart_scan_true_detections" if strategy_view == "smart_scan" else "open_loop_true_detections"
-    fa_key = "smart_scan_false_alarms" if strategy_view == "smart_scan" else "open_loop_false_alarms"
 
-    scan_times, scan_bands, scan_hover = [], [], []
-    true_times, true_bands, true_hover = [], [], []
-    fa_times, fa_bands, fa_hover = [], [], []
+    # Build 2D Matrix: 50 rows (Bands F01-F50) x N timesteps
+    # Values: 0 = Dark (not scanned), 1 = Red (scanned miss), 2 = Green (scanned hit)
+    z_matrix = []
+    hover_matrix = []
+    for b_name in BAND_NAMES:
+        row = []
+        h_row = []
+        for d in window_data:
+            selected = set(d.get(sel_key, d.get("selected_bands", [])))
+            trues = set(d.get(true_key, d.get("hits", d.get("step_true_detections", []))))
+            t_val = d.get("timestep", d.get("step", 0))
 
-    for d in window_data:
-        t_sec = d["simulated_time_s"]
-        selected = d[sel_key]
-        trues = set(d[true_key])
-        fas = set(d[fa_key])
-
-        for b in selected:
-            b_min, b_max, _ = get_band_freq_range(b)
-            if b in trues:
-                true_times.append(t_sec)
-                true_bands.append(b)
-                true_hover.append(f"Band: {b} ({b_min:.0f}-{b_max:.0f} MHz)<br>Time: {t_sec:.2f}s (t={d['timestep']})<br><b>TRUE INTERCEPTION</b>")
-            elif b in fas:
-                fa_times.append(t_sec)
-                fa_bands.append(b)
-                fa_hover.append(f"Band: {b} ({b_min:.0f}-{b_max:.0f} MHz)<br>Time: {t_sec:.2f}s (t={d['timestep']})<br><b>FALSE ALARM</b> (Quiet Band)")
+            if b_name in trues:
+                row.append(2)
+                h_row.append(f"<b>Band: {b_name}</b><br>Timestep: {t_val}<br>Status: <b style='color:#00FF9D;'>HIT (Pulse Intercepted)</b>")
+            elif b_name in selected:
+                row.append(1)
+                h_row.append(f"<b>Band: {b_name}</b><br>Timestep: {t_val}<br>Status: <b style='color:#EF4444;'>MISS (Quiet Band)</b>")
             else:
-                scan_times.append(t_sec)
-                scan_bands.append(b)
-                scan_hover.append(f"Band: {b} ({b_min:.0f}-{b_max:.0f} MHz)<br>Time: {t_sec:.2f}s (t={d['timestep']})<br>Channel Monitoring (No Signal)")
+                row.append(0)
+                h_row.append(f"<b>Band: {b_name}</b><br>Timestep: {t_val}<br>Status: Not Scanned")
+        z_matrix.append(row)
+        hover_matrix.append(h_row)
 
-    if scan_times:
-        fig.add_trace(go.Scatter(
-            x=scan_times,
-            y=scan_bands,
-            mode="markers",
-            name="Scanned (Quiet)",
-            marker=dict(symbol="circle-open", size=8, color="#00e5ff", line=dict(width=1.5)),
-            text=scan_hover,
-            hoverinfo="text",
-        ))
-
-    if fa_times:
-        fig.add_trace(go.Scatter(
-            x=fa_times,
-            y=fa_bands,
-            mode="markers",
-            name="False Alarm",
-            marker=dict(symbol="diamond", size=10, color="#ffab00", line=dict(width=1, color="#ffffff")),
-            text=fa_hover,
-            hoverinfo="text",
-        ))
-
-    if true_times:
-        fig.add_trace(go.Scatter(
-            x=true_times,
-            y=true_bands,
-            mode="markers",
-            name="True Interception",
-            marker=dict(symbol="star", size=12, color="#00c853", line=dict(width=1, color="#ffffff")),
-            text=true_hover,
-            hoverinfo="text",
-        ))
-
-    # 3. Current Selected Channel Highlight Marker
-    curr_selected = window_data[current_t - start_t][sel_key] if (0 <= current_t - start_t < len(window_data)) else []
-    curr_time_sec = current_t * 0.05
-    curr_times = [curr_time_sec] * len(curr_selected)
-    curr_hovers = [f"Band: {b}<br><b>CURRENTLY TUNED RECEIVER CHANNEL</b>" for b in curr_selected]
-
-    if curr_times:
-        fig.add_trace(go.Scatter(
-            x=curr_times,
-            y=curr_selected,
-            mode="markers",
-            name="Current Channels (K=5)",
-            marker=dict(symbol="circle-dot", size=15, color="#00e5ff", line=dict(width=2, color="#ffffff")),
-            text=curr_hovers,
-            hoverinfo="text",
-        ))
-
-    # Current Timestep Vertical Cursor Line
-    fig.add_vline(
-        x=curr_time_sec,
-        line_width=2,
-        line_dash="dash",
-        line_color="#d50000",
-        annotation_text=f"t={curr_time_sec:.2f}s",
-        annotation_position="top right",
-    )
+    fig = go.Figure(data=go.Heatmap(
+        x=x_steps,
+        y=BAND_NAMES,
+        z=z_matrix,
+        text=hover_matrix,
+        hoverinfo="text",
+        zmin=0,
+        zmax=2,
+        colorscale=[
+            [0.0, "#161922"],    # 0: Not Scanned (Dark)
+            [0.5, "#EF4444"],    # 1: Scanned Miss (Red)
+            [1.0, "#00FF9D"],    # 2: Scanned Hit (Green)
+        ],
+        showscale=False,
+        xgap=1 if len(x_steps) <= 60 else 0,
+        ygap=1,
+    ))
 
     fig.update_layout(
         title=dict(
-            text=f"RF Spectrum Activity Map — {strategy_view.upper().replace('_', ' ')} (Window: {start_t*0.05:.1f}s - {end_t*0.05:.1f}s)",
-            font=dict(color="#e6edee", size=15),
+            text=f"REAL-TIME RF SPECTRUM WATERFALL (50 BANDS — STEPS 0 TO {x_steps[-1]})",
+            font=dict(color="#F3F4F6", size=14, family="Outfit"),
         ),
         xaxis=dict(
-            title="Simulation Time (seconds)",
-            range=[start_t * 0.05, max(end_t * 0.05, (start_t + 10) * 0.05)],
-            gridcolor="#00e5ff1a",
-            zerolinecolor="#2d2d30",
-            tickfont=dict(color="#8b949e"),
+            title="Mission Timestep",
+            tickfont=dict(color="#9CA3AF", family="Inter"),
+            title_font=dict(color="#9CA3AF", family="Inter"),
+            dtick=10 if len(x_steps) <= 100 else 25,
+            gridcolor="rgba(255,255,255,0.05)",
         ),
         yaxis=dict(
-            title="Frequency Band (F01=500MHz → F50=18000MHz)",
+            title="Band (F01–F50)",
             categoryorder="array",
             categoryarray=list(reversed(BAND_NAMES)),
-            gridcolor="#00e5ff1a",
-            tickfont=dict(color="#8b949e", size=9),
+            tickfont=dict(color="#9CA3AF", size=9, family="Inter"),
+            title_font=dict(color="#9CA3AF", family="Inter"),
             dtick=2,
+            gridcolor="rgba(255,255,255,0.05)",
         ),
-        paper_bgcolor="#0a0a0b",
-        plot_bgcolor="#161618",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            font=dict(color="#c9d1d9", size=11),
-        ),
+        paper_bgcolor="#07090E",
+        plot_bgcolor="#07090E",
         height=520,
-        margin=dict(l=55, r=25, t=50, b=45),
+        margin=dict(l=55, r=25, t=45, b=45),
     )
     return fig
 

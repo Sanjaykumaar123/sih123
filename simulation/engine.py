@@ -115,14 +115,29 @@ class SimulationEngine:
             )
 
     def _load_environment(self) -> None:
-        """Load and cache the TSRD environment."""
+        """Load and cache the TSRD environment, with fallback to synthetic RFEnvironment."""
         if os.path.exists(self.scenario_path):
-            self.env = TSRDEnvironment(
-                file_path=self.scenario_path,
-                step_duration_s=0.05,
-                num_bands=self.n_bands,
-            )
-        else:
+            try:
+                self.env = TSRDEnvironment(
+                    file_path=self.scenario_path,
+                    step_duration_s=0.05,
+                    num_bands=self.n_bands,
+                )
+                return
+            except Exception:
+                pass
+
+        # Fallback to synthetic RFEnvironment if TSRD HDF5 dataset file is absent or unreadable
+        try:
+            from rf_env.environment import RFEnvironment
+            from rf_env.config import load_config
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.yaml")
+            if os.path.exists(cfg_path):
+                cfg = load_config(cfg_path)
+            else:
+                cfg = {"num_bands": self.n_bands, "random_seed": self.seed}
+            self.env = RFEnvironment(cfg)
+        except Exception:
             self.env = None
 
     def _update_initial_channel_telemetry(self) -> None:
@@ -221,7 +236,7 @@ class SimulationEngine:
             self.status = SimulationStatus.ERROR
             return
 
-        total_horizon = self.env.total_steps
+        total_horizon = getattr(self.env, "total_steps", 600) if self.env else 600
         for _ in range(num_steps):
             t = self.clock.current_step
             if t >= total_horizon:
@@ -264,7 +279,7 @@ class SimulationEngine:
                     if b in active_truth:
                         self.true_detections += 1
                         step_hits += 1
-                        step_act = self.env.processor.get_step_activity(t)
+                        step_act = self.env.processor.get_step_activity(t) if hasattr(self.env, "processor") else None
                         b_act = step_act.band_activities.get(b) if step_act else None
                         
                         # Real values only; None ("N/A" in the UI) when the TSRD step
@@ -442,7 +457,7 @@ class SimulationEngine:
     def get_snapshot(self) -> Dict[str, Any]:
         """Return a read-only snapshot of current simulation state."""
         t = self.clock.current_step
-        total_steps = self.env.total_steps if self.env else 600
+        total_steps = getattr(self.env, "total_steps", 600) if self.env else 600
         sensor_pd = (self.true_detections / (self.true_detections + self.quiet_scans)) if (self.true_detections + self.quiet_scans) > 0 else 0.0
         pfa = (self.false_alarms / self.total_scans) if self.total_scans > 0 else 0.0
         

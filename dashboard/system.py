@@ -9,12 +9,11 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from data.scenario_loader import get_validated_scenarios, discover_scenarios
+from dashboard.scenario_loader import SCAN_DIR, RESULTS_DIR
 from dashboard.multiscenario import calculate_aggregate_statistics
 from experiments.compare_strategies import compare_strategies
 from simulation.engine import SimulationEngine, SimulationStatus
 
-DATASET_SCAN_DIR = r"D:\sih\dataset\scan\test_scan"
-RESULTS_DIR = r"D:\sih\results"
 ARTIFACT_CONFIGS = [f"config_{i}" for i in range(1, 6)]
 
 
@@ -51,7 +50,8 @@ def render_scenario_lab(engine: SimulationEngine) -> None:
         chosen_seed = st.number_input("RANDOM SEED", min_value=1, max_value=9999, value=seed_val, key="lab_seed_input")
 
     strat_slug = "smart_scan" if "Smart" in chosen_strat else "open_loop"
-    scen_full_path = os.path.join(r"D:\sih\dataset\scan\test_scan", chosen_scen)
+    matching_scen = [v for v in all_disc.values() if v.h5_path and os.path.basename(v.h5_path) == chosen_scen]
+    scen_full_path = matching_scen[0].h5_path if matching_scen else os.path.join(SCAN_DIR, chosen_scen)
 
     btn_c1, btn_c2, btn_c3, btn_c4 = st.columns([1.5, 2, 2, 2])
     with btn_c1:
@@ -137,7 +137,15 @@ def render_scenario_lab(engine: SimulationEngine) -> None:
     with t1:
         st.markdown("<div style='font-size:0.8rem; color:#8b949e; margin-bottom:0.4rem;'>Total times each 50 frequency band was selected by the scheduler across the mission:</div>", unsafe_allow_html=True)
         counts = snap.get("band_scan_counts", {})
-        if counts:
+        if not counts or all(v == 0 for v in counts.values()):
+            ts_data = getattr(engine, "time_series", snap.get("time_series", []))
+            counts = {f"F{i:02d}": 0 for i in range(1, 51)}
+            for d in ts_data:
+                for b in d.get("selected_bands", d.get("smart_scan_selected", [])):
+                    if b in counts:
+                        counts[b] += 1
+        
+        if counts and any(v > 0 for v in counts.values()):
             df_counts = pd.DataFrame(list(counts.items()), columns=["Band", "Scan Count"])
             fig_counts = px.bar(df_counts, x="Band", y="Scan Count", color="Scan Count", color_continuous_scale="Viridis")
             fig_counts.update_layout(
@@ -148,6 +156,8 @@ def render_scenario_lab(engine: SimulationEngine) -> None:
                 font=dict(color="#c9d1d9"),
             )
             st.plotly_chart(fig_counts, use_container_width=True)
+        else:
+            st.info("No band utilization telemetry recorded yet. Start or step the mission to record live scans.")
 
     with t2:
         ts = engine.get_reward_timeseries() if hasattr(engine, "get_reward_timeseries") else getattr(engine, "time_series", [])
@@ -482,50 +492,41 @@ def render_health_matrix(engine: Any, operating_mode: Optional[str]) -> None:
 
 
 def render_architecture_overview(engine: Any = None, operating_mode: Optional[str] = None) -> None:
-    """SYSTEM view: architecture diagram + real dataset/artifact/status checks.
-
-    Every status line below is a live filesystem/config check, not an assumption.
-    """
-    st.markdown("<div class='system-title'>SYSTEM ARCHITECTURE & STATUS</div>", unsafe_allow_html=True)
-    st.markdown("<div class='system-subtitle'>DATA FLOW FROM RAW TSRD RADAR RECORDINGS TO OPERATOR DISPLAY</div>", unsafe_allow_html=True)
-
-    # (component, tag) - tag reflects which runtime(s) actually exercise that component.
-    # LIVE = only in the live SimulationEngine/LiveMissionRuntime path (rf_env driven, real-time).
-    # REPLAY = only in the PlaybackController path (deterministic JSON artifact replay).
-    # BOTH = present in both paths. POST-HOC = ground truth, used only for evaluation, never fed forward.
-    stages = [
-        ("TSRD SCENARIO (raw HDF5 pulse trains)", "BOTH — LIVE reads it directly; REPLAY reads a precomputed run of it"),
-        ("ENVIRONMENT (data_adapter: frequency mapping, time binning)", "LIVE only"),
-        ("RECEIVER (Receiver.observe — K=5 of N=50 bands only)", "LIVE only (REPLAY has no receiver — it replays logged selections)"),
-        ("OBSERVATION (real per-pulse SNR / hit-miss)", "LIVE only"),
-        ("COGNITIVE SCHEDULER (Bayesian belief · temporal analysis · band scoring)", "LIVE only — runs for real, every step"),
-        ("BAND SELECTION (Q-learning meta-strategy arbitration)", "LIVE only; REPLAY shows the strategy that was logged"),
-        ("DETECTOR (physical detection model, SNR threshold)", "LIVE only"),
-        ("REWARD (new hits − redundant-scan penalty)", "LIVE only; REPLAY shows the reward that was logged"),
-        ("LEARNING (Q-table update)", "LIVE only"),
-        ("MISSION STATE (LiveMissionRuntime / PlaybackController)", "BOTH — different runtime object per mode"),
-        ("OPERATOR UI (this workstation)", "BOTH"),
-        ("EVALUATION METRICS (ground truth vs. selections)", "POST-HOC ONLY — never fed to the scheduler, in either mode"),
-    ]
-    rows_html = "".join(
-        f"<div style='display:flex; justify-content:space-between; padding:0.25rem 0.5rem; border-bottom:1px solid #2d2d30;'>"
-        f"<span>{name}</span><span style='color:#8b949e; font-size:0.72rem;'>{tag}</span></div>"
-        for name, tag in stages
-    )
+    """Render a clean 4-card visual architecture pipeline grid."""
     st.markdown(
-        f"""
-        <div style='background-color:#161618; border:1px solid #2d2d30; border-radius:5px; padding:0.6rem; font-family:monospace; font-size:0.8rem; color:#c9d1d9;'>
-            {rows_html}
+        """
+        <div style='font-size:1.3rem; font-weight:800; color:#F3F4F6; font-family:"Outfit"; letter-spacing:0.04em; margin-bottom:0.75rem;'>
+            SYSTEM ARCHITECTURE PIPELINE
         </div>
         """,
         unsafe_allow_html=True,
     )
-    if operating_mode:
-        st.caption(f"Currently driving the UI: **{operating_mode}**.")
+
+    stages = [
+        ("STAGE 1: INPUT PIPELINE", "50 Frequency Bands (500 MHz – 18 GHz)", "HDF5 Pulse Trains & RF Telemetry", "#00F0FF"),
+        ("STAGE 2: RECEIVER ARRAY", "K=5 Active Hardware Channels", "50 ms Dwell Time & SNR Sensing", "#00FF9D"),
+        ("STAGE 3: COGNITIVE AI ENGINE", "Q-Learning Meta-Arbitrator", "Bayesian Belief & PRI Recurrence", "#FFB800"),
+        ("STAGE 4: OPERATOR CONSOLE", "Real-Time Telemetry & Tracking", "Interactive Mission Workstation", "#A855F7"),
+    ]
+
+    c1, c2, c3, c4 = st.columns(4)
+    for col, (title, sub, detail, color_hex) in zip([c1, c2, c3, c4], stages):
+        with col:
+            st.markdown(
+                f"""
+                <div class='glass-card' style='padding:1rem 0.85rem; border-top:4px solid {color_hex} !important;'>
+                    <div style='font-size:0.75rem; font-weight:700; color:{color_hex}; text-transform:uppercase;'>{title}</div>
+                    <div style='font-size:0.95rem; font-weight:800; color:#F3F4F6; font-family:"Outfit"; margin-top:0.2rem;'>{sub}</div>
+                    <div style='font-size:0.75rem; color:#9CA3AF; margin-top:0.3rem;'>{detail}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    st.markdown("<div style='margin-top:0.75rem;'></div>", unsafe_allow_html=True)
 
     st.markdown("<div class='channel-header' style='font-size:0.85rem; margin-top:0.8rem;'>LIVE STATUS CHECKS</div>", unsafe_allow_html=True)
 
-    dataset_ok = os.path.isdir(DATASET_SCAN_DIR) and any(f.endswith(".h5") for f in os.listdir(DATASET_SCAN_DIR))
+    dataset_ok = os.path.isdir(SCAN_DIR) and any(f.endswith(".h5") for f in os.listdir(SCAN_DIR))
     artifacts_present = [c for c in ARTIFACT_CONFIGS if os.path.exists(os.path.join(RESULTS_DIR, f"operational_evaluation_{c}.json"))]
 
     snap = engine.get_snapshot() if engine is not None and hasattr(engine, "get_snapshot") else {}
@@ -535,7 +536,7 @@ def render_architecture_overview(engine: Any = None, operating_mode: Optional[st
     max_dur = snap.get("max_duration_s", max_steps * 0.05)
 
     status_lines = [
-        (dataset_ok, f"Dataset loaded ({DATASET_SCAN_DIR})"),
+        (dataset_ok, f"Dataset loaded ({SCAN_DIR})"),
         (len(artifacts_present) > 0, f"Operational artifact(s) loaded ({len(artifacts_present)}/5 scenarios)"),
         (True, "Cognitive engine initialized"),
         (True, f"Receiver K={k}"),

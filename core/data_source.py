@@ -62,7 +62,7 @@ class TSRDSignalSource(SignalSource):
 
     @property
     def total_steps(self) -> int:
-        return self.env.total_steps if self.env else 600
+        return getattr(self.env, "total_steps", 600) if self.env else 600
 
     @property
     def source_type(self) -> str:
@@ -97,7 +97,7 @@ class ReplaySignalSource(SignalSource):
 
     @property
     def total_steps(self) -> int:
-        return self.env.total_steps if self.env else 600
+        return getattr(self.env, "total_steps", 600) if self.env else 600
 
     @property
     def source_type(self) -> str:

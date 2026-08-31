@@ -45,9 +45,11 @@ from dashboard import (
     cognitive_pipeline,
     alerts,
     theme,
+    jury_explainer,
 )
 
-SCAN_DIR = r"D:\sih\dataset\scan\test_scan"
+DEFAULT_SCAN_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "dataset", "scan", "test_scan"))
+SCAN_DIR = r"D:\sih\dataset\scan\test_scan" if os.path.exists(r"D:\sih\dataset\scan\test_scan") else DEFAULT_SCAN_DIR
 SCEN_OPTIONS = ["config_1.h5", "config_2.h5", "config_3.h5", "config_4.h5", "config_5.h5"]
 
 # -----------------------------------------------------------------------------
@@ -105,7 +107,7 @@ st.sidebar.markdown("<span class='tech-badge badge-success'>● SYSTEM HEALTHY</
 # native Streamlit sidebar radio + icon glyphs - Streamlit has no icon-rail widget).
 # HELP is deliberately NOT one of these 8 - it is a secondary/footer destination,
 # rendered at the bottom of the sidebar (see "OPERATOR HELP" below).
-NAV_VIEWS = ["MISSION CONTROL", "SPECTRUM", "COGNITIVE ENGINE", "RECEIVER ARRAY", "TRACKS", "ALERTS", "ANALYTICS", "SYSTEM"]
+NAV_VIEWS = ["SOLUTION EXPLAINER", "MISSION CONTROL", "SPECTRUM", "COGNITIVE ENGINE", "RECEIVER ARRAY", "TRACKS", "ALERTS", "ANALYTICS", "SYSTEM"]
 if "show_help_page" not in st.session_state:
     st.session_state.show_help_page = False
 # Programmatic navigation (e.g. Mission Control's "View all alerts ->" button):
@@ -118,7 +120,7 @@ if "_pending_nav" in st.session_state:
     st.session_state["nav_view_radio"] = st.session_state.pop("_pending_nav")
 nav_view = st.sidebar.radio(
     "NAVIGATION", options=NAV_VIEWS, index=0, key="nav_view_radio",
-    format_func=lambda v: f"{theme.NAV_ICONS.get(v, '')}  {v}",
+    format_func=lambda v: f"{theme.NAV_ICONS.get(v, '')}  {v}".strip(),
     on_change=lambda: st.session_state.update(show_help_page=False),
 )
 st.sidebar.markdown("---")
@@ -316,7 +318,9 @@ elif operating_mode == "REPLAY VERIFIED RUN" and not controller.time_series:
 # -----------------------------------------------------------------------------
 # 6. View Router
 # -----------------------------------------------------------------------------
-if nav_view == "MISSION CONTROL":
+if nav_view == "SOLUTION EXPLAINER":
+    jury_explainer.render_jury_explainer(engine)
+elif nav_view == "MISSION CONTROL":
     # Mission Control redesign (Phase B): compact enterprise-console layout.
     # Every value below still comes from the exact same engine.get_snapshot()/
     # render_* calls as before - this block only changes WHERE/HOW they're laid
@@ -328,50 +332,10 @@ if nav_view == "MISSION CONTROL":
     # in ophelp.render_help_page() section 1; band-selection reasoning has its
     # full, real version in the COGNITIVE ENGINE view's decision panel; data
     # integrity has its full, real version in the SYSTEM view.
-    is_first_run = snap0["mission_status"] == EngineStatus.READY and snap0.get("timestep", snap0.get("current_step", 0)) == 0
-    if is_first_run:
-        st.markdown(
-            theme.panel(
-                "SYSTEM READY",
-                (
-                    f"<span class='text-body' style='color:{theme.COLOR_TEXT_MUTED};'>"
-                    f"Mode <strong style='color:{theme.COLOR_TEXT};'>{operating_mode}</strong> &nbsp;·&nbsp; "
-                    f"Scenario <strong style='color:{theme.COLOR_TEXT};'>{snap0.get('scenario_name', sb_scen)}</strong> &nbsp;·&nbsp; "
-                    f"Receiver <strong style='color:{theme.COLOR_TEXT};'>K={snap0.get('k_channels', 5)}</strong> of "
-                    f"{snap0.get('n_bands', 50)} bands &nbsp;·&nbsp; Spectrum "
-                    f"<strong style='color:{theme.COLOR_TEXT};'>500 MHz – 18 GHz</strong> &nbsp;·&nbsp; Duration "
-                    f"<strong style='color:{theme.COLOR_TEXT};'>{snap0.get('max_duration_s', 30.0):.0f}s</strong>"
-                    f"</span>"
-                ),
-                badge_html="<span class='tech-badge badge-primary'>READY TO START</span>",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    # KPI row: primary (6, hero/standard hierarchy) + "MISSION DETAILS" secondary
-    # row (4, visually quieter) - see dashboard/live_operations.py::render_kpi_bar.
+    # Render Consolidated KPI Bar
     live_operations.render_kpi_bar(engine)
     snap = engine.get_snapshot()
-
-    # Mission Progress (redesign section D): a thin, restrained progress bar -
-    # step count and elapsed/remaining time are the exact same real fields the
-    # header/KPI row already compute (current_step/max_steps/simulated_time_s/
-    # max_duration_s); "remaining" is real arithmetic on two already-real
-    # numbers (max_duration_s - simulated_time_s), never a fabricated ETA.
-    mc_max_steps = snap.get("max_steps", snap.get("total_timesteps", 600))
     mc_current_step = snap.get("timestep", snap.get("current_step", 0))
-    mc_max_dur = snap.get("max_duration_s", 30.0)
-    mc_sim_time = snap.get("simulated_time_s", snap.get("simulation_time_s", 0.0))
-    mc_progress_pct = (mc_current_step / max(1, mc_max_steps - 1)) * 100.0
-    st.markdown(
-        theme.mission_progress_bar(
-            mc_progress_pct,
-            step_label=f"{mc_current_step} / {mc_max_steps}",
-            elapsed_label=f"{mc_sim_time:.2f}s",
-            remaining_label=f"{max(0.0, mc_max_dur - mc_sim_time):.2f}s",
-        ),
-        unsafe_allow_html=True,
-    )
 
     # Main operational workspace (redesign section E): Receiver Array (left) |
     # Live Spectrum (right, more visual weight) - existing render functions/
@@ -379,25 +343,10 @@ if nav_view == "MISSION CONTROL":
     # (Mission Control's reduced-hierarchy card); the standalone RECEIVER ARRAY
     # view still calls render_receiver_panel() directly with the unchanged default.
     st.markdown(theme.section_divider("MAIN OPERATIONAL WORKSPACE"), unsafe_allow_html=True)
-    mc_c1, mc_c2 = st.columns([4, 6])
-    with mc_c1:
-        st.markdown(
-            f"<div class='channel-header' style='font-size:0.75rem;'>RECEIVER ARRAY &nbsp;"
-            f"<span style='color:{theme.COLOR_TEXT_FAINT}; text-transform:none; font-weight:500;'>"
-            f"({snap.get('k_channels', 5)} active channels)</span></div>",
-            unsafe_allow_html=True,
-        )
-        live_operations.render_receiver_strip(engine, compact=True)
-    with mc_c2:
-        active_bands_now = len(snap.get("selected_bands", []))
-        st.markdown(
-            f"<div class='channel-header' style='font-size:0.75rem;'>LIVE SPECTRUM &nbsp;"
-            f"<span style='color:{theme.COLOR_TEXT_FAINT}; text-transform:none; font-weight:500;'>"
-            f"({snap.get('n_bands', 50)} bands &nbsp;·&nbsp; step {mc_current_step} &nbsp;·&nbsp; "
-            f"{active_bands_now} active now)</span></div>",
-            unsafe_allow_html=True,
-        )
-        spectrum.render_live_spectrum_map(engine, show_ground_truth=False)
+    spectrum.render_live_spectrum_map(engine, show_ground_truth=False)
+
+    st.markdown("<div class='channel-header' style='font-size:0.85rem; margin-top:1.2rem; margin-bottom:0.5rem; font-weight:700;'>RECEIVER HARDWARE ARRAY (K=5 Active Channels)</div>", unsafe_allow_html=True)
+    live_operations.render_receiver_strip(engine, compact=True)
 
     # Secondary operational information (redesign section F/G/H): recent
     # decisions (left) | operator attention + alert summary (right). Concise,
@@ -491,31 +440,10 @@ elif nav_view == "SPECTRUM":
     ophelp.render_bottom_status(engine.get_snapshot())
 
 elif nav_view == "COGNITIVE ENGINE":
-    snap = engine.get_snapshot()
-    st.markdown("---")
-    st.markdown("<div class='system-title'>COGNITIVE DECISION ENGINE</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='system-subtitle'>OBSERVE → BELIEF → SCORE → SELECT → SCAN → DETECT → REWARD → LEARN • {operating_mode}</div>", unsafe_allow_html=True)
-    cognitive_pipeline.render_pipeline(snap, compact=False)
-    st.markdown("---")
     decision_panel.render_decision_panel(engine)
-    st.markdown("---")
-    ophelp.render_what_makes_cognitive()
-    ophelp.render_bottom_status(snap)
 
 elif nav_view == "RECEIVER ARRAY":
-    snap = engine.get_snapshot()
-    st.markdown("---")
-    st.markdown("<div class='system-title'>SIMULATED RECEIVER ARRAY — CURRENT ALLOCATION</div>", unsafe_allow_html=True)
-    st.markdown(
-        f"<div class='system-subtitle'>{snap.get('k_channels',5)} SIMULTANEOUS CHANNELS OF {snap.get('n_bands',50)} AVAILABLE BANDS • {operating_mode} • NO PHYSICAL RF HARDWARE — SIMULATION ONLY</div>",
-        unsafe_allow_html=True,
-    )
     receiver_panel.render_receiver_panel(engine)
-    st.caption(
-        "Fields with no real data for the current run (SNR / amplitude / AoA / pulse "
-        "width not measurable for this observation) are shown as N/A — never invented."
-    )
-    ophelp.render_bottom_status(snap)
 
 elif nav_view == "TRACKS":
     st.markdown("---")
@@ -530,14 +458,6 @@ elif nav_view == "ALERTS":
     ophelp.render_bottom_status(engine.get_snapshot())
 
 elif nav_view == "ANALYTICS":
-    st.markdown("---")
-    st.markdown("<div class='system-title'>ANALYTICS</div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='system-subtitle'>THREE INDEPENDENT SECTIONS — NEVER MIXED: LIVE MISSION ANALYTICS (this session's active run) / SCENARIO EXPERIMENT LAB (isolated sandbox) / VERIFIED BENCHMARK (deterministic precomputed artifacts)</div>",
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("<div class='system-title' style='font-size:1rem; color:#a371f7;'>LIVE MISSION ANALYTICS</div>", unsafe_allow_html=True)
     lm = st.session_state.live_mission
     lm_active = lm is not None and lm.mission_status in (LiveMissionStatus.RUNNING, LiveMissionStatus.PAUSED)
     if lm is None or lm.get_snapshot()["total_scans"] == 0:
@@ -546,19 +466,7 @@ elif nav_view == "ANALYTICS":
         performance.render_performance_monitor(lm)
 
     st.markdown("---")
-    st.markdown("<div class='system-title' style='font-size:1rem; color:#00c853;'>SCENARIO EXPERIMENT LAB</div>", unsafe_allow_html=True)
-    if lm_active:
-        st.warning(
-            f"🛡 **ACTIVE LIVE MISSION PROTECTED** — a live mission is currently {lm.mission_status}. "
-            "This lab runs its own fully independent SimulationEngine instance; it can never overwrite, "
-            "reset, or pause your live mission, no matter what you run here."
-        )
-    else:
-        st.caption(
-            "🛡 Isolated sandbox: this lab always drives its own independent SimulationEngine "
-            "instance (`st.session_state.experiment_lab`), never the LIVE SIMULATION mission above — "
-            "running an experiment here cannot affect an active live mission."
-        )
+    st.markdown("<div style='font-size:1.1rem; font-weight:800; color:#00FF9D; font-family:\"Outfit\"; margin-bottom:0.5rem;'>SCENARIO EXPERIMENT LAB</div>", unsafe_allow_html=True)
     if "experiment_lab" not in st.session_state or st.session_state.experiment_lab is None:
         from simulation.engine import SimulationEngine as _SimEngine
         st.session_state.experiment_lab = _SimEngine(
@@ -581,66 +489,63 @@ elif nav_view == "SYSTEM":
     ophelp.render_data_integrity_indicator(operating_mode=operating_mode)
     ophelp.render_bottom_status(engine.get_snapshot())
 
-# -----------------------------------------------------------------------------
-# 7. Mission Reporting & Telemetry Export — Audit Trail (section 24, available
-#    from every view; always exports the currently active engine's data)
-# -----------------------------------------------------------------------------
-st.markdown("---")
-st.markdown("<div class='channel-header' style='font-size:0.85rem;'>MISSION REPORTING & TELEMETRY EXPORT (AUDIT TRAIL)</div>", unsafe_allow_html=True)
-snap_exp = engine.get_snapshot()
-exp_c1, exp_c2, exp_c3 = st.columns(3)
-with exp_c1:
-    st.download_button(
-        "📥 EXPORT MISSION LOG (JSON)",
-        data=json.dumps(engine.export_report_json(), indent=2, default=str),
-        file_name=f"mission_report_{getattr(engine, 'mission_id', 'session')}_{snap_exp.get('scenario_name','scenario').replace('.h5','')}.json",
-        mime="application/json", use_container_width=True, key="exp_m_report_btn",
-    )
-with exp_c2:
-    st.download_button(
-        "📥 EXPORT EVENT TELEMETRY (CSV)",
-        data=engine.export_events_csv(),
-        file_name=f"rf_events_{getattr(engine, 'mission_id', 'session')}_{snap_exp.get('timestep', 0)}steps.csv",
-        mime="text/csv", use_container_width=True, key="exp_m_events_btn",
-    )
-with exp_c3:
-    st.download_button(
-        "📥 EXPORT TRACK / INTERCEPTION HISTORY (CSV)",
-        data=engine.export_tracks_csv(),
-        file_name=f"rf_tracks_{getattr(engine, 'mission_id', 'session')}_{snap_exp.get('timestep', 0)}steps.csv",
-        mime="text/csv", use_container_width=True, key="exp_m_tracks_btn",
-    )
+    # Mission Reporting & Telemetry Export — Audit Trail (rendered ONLY on the last page: SYSTEM)
+    st.markdown("---")
+    st.markdown("<div class='channel-header' style='font-size:0.85rem;'>MISSION REPORTING & TELEMETRY EXPORT (AUDIT TRAIL)</div>", unsafe_allow_html=True)
+    snap_exp = engine.get_snapshot()
+    exp_c1, exp_c2, exp_c3 = st.columns(3)
+    with exp_c1:
+        st.download_button(
+            "📥 EXPORT MISSION LOG (JSON)",
+            data=json.dumps(engine.export_report_json(), indent=2, default=str),
+            file_name=f"mission_report_{getattr(engine, 'mission_id', 'session')}_{snap_exp.get('scenario_name','scenario').replace('.h5','')}.json",
+            mime="application/json", use_container_width=True, key="exp_m_report_btn",
+        )
+    with exp_c2:
+        st.download_button(
+            "📥 EXPORT EVENT TELEMETRY (CSV)",
+            data=engine.export_events_csv(),
+            file_name=f"rf_events_{getattr(engine, 'mission_id', 'session')}_{snap_exp.get('timestep', 0)}steps.csv",
+            mime="text/csv", use_container_width=True, key="exp_m_events_btn",
+        )
+    with exp_c3:
+        st.download_button(
+            "📥 EXPORT TRACK / INTERCEPTION HISTORY (CSV)",
+            data=engine.export_tracks_csv(),
+            file_name=f"rf_tracks_{getattr(engine, 'mission_id', 'session')}_{snap_exp.get('timestep', 0)}steps.csv",
+            mime="text/csv", use_container_width=True, key="exp_m_tracks_btn",
+        )
 
-exp2_c1, exp2_c2, exp2_c3 = st.columns(3)
-with exp2_c1:
-    if hasattr(engine, "get_decision_history"):
-        dec_rows = engine.get_decision_history(window=600)
-    else:
-        dec_rows = list(getattr(engine, "decision_history", []))
-    dec_csv = pd.DataFrame(dec_rows).to_csv(index=False) if dec_rows else "No decision data recorded."
-    st.download_button(
-        "📥 EXPORT DECISION TRACE (CSV)", data=dec_csv,
-        file_name=f"decision_trace_{getattr(engine, 'mission_id', 'session')}.csv",
-        mime="text/csv", use_container_width=True, key="exp_m_decisions_btn",
-    )
-with exp2_c2:
-    band_counts = dict(getattr(engine, "band_scan_counts", {}))
-    receiver_csv = pd.DataFrame(list(band_counts.items()), columns=["Band", "Scan_Count"]).to_csv(index=False) if band_counts else "No receiver utilization data recorded."
-    st.download_button(
-        "📥 EXPORT RECEIVER UTILIZATION (CSV)", data=receiver_csv,
-        file_name=f"receiver_utilization_{getattr(engine, 'mission_id', 'session')}.csv",
-        mime="text/csv", use_container_width=True, key="exp_m_receiver_btn",
-    )
-with exp2_c3:
-    if hasattr(engine, "get_mission_history_summary"):
-        summary = engine.get_mission_history_summary()
-    else:
-        summary = {"note": "Mission summary is only computed for the LIVE runtime; use EXPORT MISSION LOG for REPLAY."}
-    st.download_button(
-        "📥 EXPORT MISSION SUMMARY (JSON)", data=json.dumps(summary, indent=2, default=str),
-        file_name=f"mission_summary_{getattr(engine, 'mission_id', 'session')}.json",
-        mime="application/json", use_container_width=True, key="exp_m_summary_btn",
-    )
+    exp2_c1, exp2_c2, exp2_c3 = st.columns(3)
+    with exp2_c1:
+        if hasattr(engine, "get_decision_history"):
+            dec_rows = engine.get_decision_history(window=600)
+        else:
+            dec_rows = list(getattr(engine, "decision_history", []))
+        dec_csv = pd.DataFrame(dec_rows).to_csv(index=False) if dec_rows else "No decision data recorded."
+        st.download_button(
+            "📥 EXPORT DECISION TRACE (CSV)", data=dec_csv,
+            file_name=f"decision_trace_{getattr(engine, 'mission_id', 'session')}.csv",
+            mime="text/csv", use_container_width=True, key="exp_m_decisions_btn",
+        )
+    with exp2_c2:
+        band_counts = dict(getattr(engine, "band_scan_counts", {}))
+        receiver_csv = pd.DataFrame(list(band_counts.items()), columns=["Band", "Scan_Count"]).to_csv(index=False) if band_counts else "No receiver utilization data recorded."
+        st.download_button(
+            "📥 EXPORT RECEIVER UTILIZATION (CSV)", data=receiver_csv,
+            file_name=f"receiver_utilization_{getattr(engine, 'mission_id', 'session')}.csv",
+            mime="text/csv", use_container_width=True, key="exp_m_receiver_btn",
+        )
+    with exp2_c3:
+        if hasattr(engine, "get_mission_history_summary"):
+            summary = engine.get_mission_history_summary()
+        else:
+            summary = {"note": "Mission summary is only computed for the LIVE runtime; use EXPORT MISSION LOG for REPLAY."}
+        st.download_button(
+            "📥 EXPORT MISSION SUMMARY (JSON)", data=json.dumps(summary, indent=2, default=str),
+            file_name=f"mission_summary_{getattr(engine, 'mission_id', 'session')}.json",
+            mime="application/json", use_container_width=True, key="exp_m_summary_btn",
+        )
 
 # Record UI render latency (attributed to the replay controller for backward-compat
 # with the sidebar telemetry line; harmless if the live runtime is currently active)

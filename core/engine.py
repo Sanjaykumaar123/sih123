@@ -127,16 +127,33 @@ class OperationalEngine:
             )
 
     def _load_environment(self) -> None:
-        """Load and cache the TSRD environment from HDF5 file."""
+        """Load and cache the TSRD environment from HDF5 file, with fallback to synthetic RFEnvironment."""
         if os.path.exists(self.scenario_path):
-            self.env = TSRDEnvironment(
-                file_path=self.scenario_path,
-                step_duration_s=0.05,
-                num_bands=self.n_bands,
-            )
+            try:
+                self.env = TSRDEnvironment(
+                    file_path=self.scenario_path,
+                    step_duration_s=0.05,
+                    num_bands=self.n_bands,
+                )
+                if hasattr(self, "health"):
+                    self.health.data_source = "ONLINE"
+                return
+            except Exception:
+                pass
+
+        # Fallback to synthetic RFEnvironment if TSRD HDF5 dataset file is absent or unreadable
+        try:
+            from rf_env.environment import RFEnvironment
+            from rf_env.config import load_config
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.yaml")
+            if os.path.exists(cfg_path):
+                cfg = load_config(cfg_path)
+            else:
+                cfg = {"num_bands": self.n_bands, "random_seed": self.seed}
+            self.env = RFEnvironment(cfg)
             if hasattr(self, "health"):
-                self.health.data_source = "ONLINE"
-        else:
+                self.health.data_source = "SYNTHETIC"
+        except Exception:
             self.env = None
             if hasattr(self, "health"):
                 self.health.data_source = "ERROR: FILE NOT FOUND"
@@ -305,7 +322,7 @@ class OperationalEngine:
 
         for _ in range(num_steps):
             t = self.clock.current_step
-            if t >= self.max_steps or t >= self.env.total_steps:
+            if t >= self.max_steps or (self.env and t >= getattr(self.env, "total_steps", 600)):
                 self.status = EngineStatus.COMPLETE
                 self.health.engine = "COMPLETE"
                 self._emit_event(EventType.MISSION_STATE_CHANGE, message=f"Mission completed at t={t*0.05:.2f}s.")
@@ -349,7 +366,7 @@ class OperationalEngine:
                     if b in active_truth:
                         self.true_detections += 1
                         step_hits += 1
-                        step_act = self.env.processor.get_step_activity(t)
+                        step_act = self.env.processor.get_step_activity(t) if hasattr(self.env, "processor") else None
                         b_act = step_act.band_activities.get(b) if step_act else None
 
                         amp = b_act.max_amplitude_dbm if b_act else obs.signal_strength
@@ -514,7 +531,7 @@ class OperationalEngine:
             # Advance clock
             self.clock.tick()
 
-        if self.clock.current_step >= self.max_steps or (self.env and self.clock.current_step >= self.env.total_steps):
+        if self.clock.current_step >= self.max_steps or (self.env and self.clock.current_step >= getattr(self.env, "total_steps", 600)):
             self.status = EngineStatus.COMPLETE
             self.health.engine = "COMPLETE"
 

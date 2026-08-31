@@ -124,14 +124,15 @@ SHADOW_LG = "0 8px 24px rgba(0,0,0,0.40)"
 # Streamlit's sidebar radio has no native icon-rail widget). Order matches the
 # operator-oriented 8-item navigation from the implementation brief.
 NAV_ICONS = {
-    "MISSION CONTROL": "\U0001F5A5",   # desktop
-    "SPECTRUM": "\U0001F4E1",          # satellite antenna
-    "COGNITIVE ENGINE": "\U0001F9E0",  # brain
-    "RECEIVER ARRAY": "\U0001F4F6",    # antenna bars
-    "TRACKS": "\U0001F6F0",            # satellite
-    "ALERTS": "\U0001F514",            # bell
-    "ANALYTICS": "\U0001F4CA",         # bar chart
-    "SYSTEM": "⚙",                # gear
+    "SOLUTION EXPLAINER": "",
+    "MISSION CONTROL": "",
+    "SPECTRUM": "",
+    "COGNITIVE ENGINE": "",
+    "RECEIVER ARRAY": "",
+    "TRACKS": "",
+    "ALERTS": "",
+    "ANALYTICS": "",
+    "SYSTEM": "",
 }
 
 
@@ -355,7 +356,7 @@ def get_custom_css() -> str:
     is a token swap here rather than a rewrite of every view module."""
     return f"""
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;800&family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         html, body, .stApp {{
             background-color: {COLOR_BASE};
@@ -365,10 +366,56 @@ def get_custom_css() -> str:
         .stApp * {{
             border-radius: 0;
         }}
-        /* ---- Headings / labels (Inter) ---- */
+        /* ---- Glassmorphism Card Styling ---- */
+        .glass-card, .channel-card, .metric-card, .decision-card, div[data-testid="stExpander"] {{
+            background: rgba(23, 26, 35, 0.8) !important;
+            backdrop-filter: blur(12px) !important;
+            -webkit-backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(79, 140, 255, 0.2) !important;
+            border-radius: {RADIUS_CARD} !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35) !important;
+            transition: all 0.25s ease-in-out !important;
+        }}
+        .glass-card:hover, .channel-card:hover, .metric-card:hover, .decision-card:hover {{
+            border-color: rgba(0, 240, 255, 0.45) !important;
+            box-shadow: 0 6px 24px rgba(0, 240, 255, 0.15) !important;
+        }}
+        /* ---- Hide default clunky Streamlit radio input squares in sidebar navigation ---- */
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label > div:first-child {{
+            display: none !important;
+        }}
+        /* ---- Sleek modern navigation item styling ---- */
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label {{
+            padding: 0.5rem 0.8rem !important;
+            border-radius: 6px !important;
+            margin-bottom: 0.2rem !important;
+            border-left: 3px solid transparent !important;
+            transition: all 0.2s ease-in-out !important;
+            background: transparent !important;
+            color: #9CA3AF !important;
+            font-weight: 500 !important;
+            font-size: 0.85rem !important;
+        }}
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label:hover {{
+            background: rgba(79, 140, 255, 0.1) !important;
+            color: #4F8CFF !important;
+            border-left: 3px solid rgba(79, 140, 255, 0.5) !important;
+        }}
+        /* Active navigation item styling with glowing cyan left border & highlight */
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label[aria-checked="true"],
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label:has(input:checked) {{
+            background: rgba(0, 240, 255, 0.12) !important;
+            border-left: 3px solid #00F0FF !important;
+            color: #00F0FF !important;
+            font-weight: 700 !important;
+        }}
+        /* ---- Headings / labels (Outfit & Inter) ---- */
+        h1, h2, h3, h4 {{
+            font-family: "Outfit", {FONT_UI} !important;
+        }}
         .system-title {{
-            font-family: {FONT_UI};
-            font-size: 1.05rem; font-weight: 800; letter-spacing: 0.05em;
+            font-family: "Outfit", {FONT_UI};
+            font-size: 1.15rem; font-weight: 800; letter-spacing: 0.05em;
             color: {COLOR_PRIMARY}; margin-bottom: 0.1rem; text-transform: uppercase;
         }}
         .system-subtitle {{
@@ -398,12 +445,12 @@ def get_custom_css() -> str:
         .stDataFrame, .stDataFrame * {{
             font-family: {FONT_MONO} !important;
         }}
-        .channel-band {{ font-size: 1.05rem; font-weight: 700; color: {COLOR_TEXT}; }}
-        .channel-freq {{ font-size: 0.68rem; color: {COLOR_TEXT_MUTED}; }}
-        .metric-val {{ font-size: 1.25rem; font-weight: 700; color: {COLOR_TEXT}; line-height: 1.2; }}
-        .metric-val-lg {{ font-size: 1.55rem; font-weight: 800; color: {COLOR_TEXT}; line-height: 1.2; }}
-        .metric-card-quiet {{ opacity: 0.72; }}
-        .metric-imp {{ font-size: 0.6rem; font-weight: 600; margin-top: 0.15rem; }}
+        .channel-band {{ font-size: 1.15rem; font-weight: 700; color: {COLOR_TEXT}; }}
+        .channel-freq {{ font-size: 0.85rem; color: {COLOR_TEXT_MUTED}; }}
+        .metric-val {{ font-size: 2.2rem !important; font-weight: 800 !important; color: {COLOR_TEXT} !important; line-height: 1.2 !important; font-family: "Outfit", {FONT_UI} !important; }}
+        .metric-val-lg {{ font-size: 2.6rem !important; font-weight: 800 !important; color: {COLOR_TEXT} !important; line-height: 1.2 !important; font-family: "Outfit", {FONT_UI} !important; }}
+        .metric-card-quiet {{ opacity: 0.85; }}
+        .metric-imp {{ font-size: 0.88rem !important; font-weight: 600 !important; margin-top: 0.25rem !important; }}
         .imp-good {{ color: {COLOR_NOMINAL}; }}
         .imp-bad {{ color: {COLOR_CRITICAL}; }}
         .imp-neutral {{ color: {COLOR_TEXT_MUTED}; }}
@@ -457,20 +504,35 @@ def get_custom_css() -> str:
            also missing from this rule entirely before - buttons were never actually
            dark. Both fixed here, applying to every plain button project-wide. */
         .stButton button, .stDownloadButton button {{
-            background-color: {COLOR_BASE} !important;
-            border-radius: {RADIUS} !important;
-            border: {BORDER} !important;
+            background-color: {COLOR_PANEL} !important;
+            border-radius: 6px !important;
+            border: 1px solid rgba(79, 140, 255, 0.25) !important;
             font-family: {FONT_UI} !important;
-            font-weight: 600 !important;
+            font-weight: 700 !important;
+            font-size: 0.8rem !important;
             color: {COLOR_TEXT} !important;
-            min-height: {CONTROL_HEIGHT_MD};
+            height: 38px !important;
+            min-height: 38px !important;
+            max-height: 38px !important;
+            line-height: 1 !important;
+            white-space: nowrap !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 0.5rem !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
+            transition: all 0.2s ease-in-out !important;
         }}
         .stButton button:hover, .stDownloadButton button:hover {{
-            border-color: {COLOR_PRIMARY} !important;
-            color: {COLOR_PRIMARY} !important;
+            border-color: #00F0FF !important;
+            color: #00F0FF !important;
+            box-shadow: 0 0 12px rgba(0, 240, 255, 0.3) !important;
         }}
         .stButton button:disabled, .stDownloadButton button:disabled {{
-            opacity: 0.35 !important;
+            opacity: 0.3 !important;
+            border-color: rgba(255, 255, 255, 0.08) !important;
+            box-shadow: none !important;
+        }}
             border-color: {COLOR_BORDER} !important;
             color: {COLOR_TEXT_MUTED} !important;
             background-color: {COLOR_PANEL} !important;
@@ -699,16 +761,12 @@ def get_custom_css() -> str:
             width:32px; height:32px; border-radius:{RADIUS_SM}; display:flex; align-items:center;
             justify-content:center; font-size:1rem; flex-shrink:0;
         }}
-        .kpi-label {{ font-family:{FONT_UI}; font-size:0.63rem; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:{COLOR_TEXT_MUTED}; }}
-        .kpi-value {{ font-family:{FONT_MONO}; font-size:1.35rem; font-weight:700; color:{COLOR_TEXT}; line-height:1.3; margin-top:0.1rem; }}
-        .kpi-delta {{ font-family:{FONT_MONO}; font-size:0.66rem; font-weight:600; margin-top:0.1rem; }}
-        /* ---- KPI hero variant: the handful of KPIs that should visually
-           dominate the row (Detections / Active Tracks / Progress) - larger
-           value, bigger icon chip, colored left accent. Everything else in the
-           row stays the quieter .kpi-value/.kpi-icon default above. ---- */
-        .kpi-card-hero {{ padding-left:calc({SPACE[4]} - 2px); }}
-        .kpi-card-hero .kpi-icon {{ width:38px; height:38px; font-size:1.2rem; }}
-        .kpi-value-hero {{ font-family:{FONT_MONO}; font-size:1.75rem; font-weight:800; color:{COLOR_TEXT}; line-height:1.25; margin-top:0.1rem; }}
+        .kpi-label {{ font-family: "Outfit", {FONT_UI}; font-size: 0.85rem !important; font-weight: 700 !important; letter-spacing: 0.05em; text-transform: uppercase; color: {COLOR_TEXT_MUTED}; }}
+        .kpi-value {{ font-family: "Outfit", {FONT_UI}; font-size: 2.1rem !important; font-weight: 800 !important; color: {COLOR_TEXT}; line-height: 1.2; margin-top: 0.2rem; }}
+        .kpi-delta {{ font-family: {FONT_UI}; font-size: 0.9rem !important; font-weight: 600 !important; margin-top: 0.25rem; }}
+        .kpi-card-hero {{ padding-left: calc({SPACE[4]} - 2px); }}
+        .kpi-card-hero .kpi-icon {{ width: 38px; height: 38px; font-size: 1.2rem; }}
+        .kpi-value-hero {{ font-family: "Outfit", {FONT_UI}; font-size: 2.5rem !important; font-weight: 800 !important; color: {COLOR_TEXT}; line-height: 1.2; margin-top: 0.2rem; }}
 
         /* ---- Mission progress bar: thin filled track, not a "huge neon
            progress bar". ---- */

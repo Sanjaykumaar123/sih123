@@ -57,7 +57,7 @@ def glossary_caption(term: str) -> None:
     """Render a small caption under a label explaining a technical term."""
     txt = GLOSSARY.get(term)
     if txt:
-        st.caption(f"❓ **{term}**: {txt}")
+        st.markdown(f"<div style='font-size:0.78rem; color:#9CA3AF; margin-top:0.15rem; margin-bottom:0.6rem;'><strong>{term}</strong>: {txt}</div>", unsafe_allow_html=True)
 
 
 def render_glossary_expander() -> None:

@@ -47,6 +47,10 @@ class RFEnvironment:
         self._band_truth_map: Dict[str, BandTruth] = {}
         self.emitters: List[Emitter] = self._build_emitters()
 
+    @property
+    def total_steps(self) -> int:
+        return int(self.config.get("max_timesteps", 600))
+
     def _build_emitters(self) -> List[Emitter]:
         emitters = []
         emitter_configs = self.config.get("emitters", [])

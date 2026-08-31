@@ -9,150 +9,16 @@ from core.tracker import get_band_freq_range
 from dashboard import theme
 
 
+from dashboard import visualizations
+
+
 def render_live_spectrum_map(engine: Any, show_ground_truth: bool = False, time_series_override: Optional[List[Dict[str, Any]]] = None) -> None:
-    """Render live updating 2D time-frequency activity waterfall.
-
-    time_series_override, when passed, replaces the engine snapshot's own (possibly
-    display-truncated) time_series - used by the SPECTRUM view's MISSION HISTORY toggle
-    to show the real, full accumulated history (LiveMissionRuntime.get_mission_history_
-    time_series()) instead of the rolling LIVE WINDOW. Both are real recorded data;
-    nothing here is synthesized.
-    """
-    st.markdown("<div class='channel-header' style='font-size:0.85rem; margin-top:0.6rem;'>LIVE RF TIME-FREQUENCY SPECTRUM WATERFALL (50 BANDS)</div>", unsafe_allow_html=True)
-
+    """Render live updating RF spectrum display using the Dual-Panel Spectrum Analyzer."""
     snap = engine.get_snapshot()
     time_series = time_series_override if time_series_override is not None else snap.get("time_series", [])
-    current_time_s = snap.get("simulated_time_s", snap.get("simulation_time_s", 0.0))
-    max_duration_s = snap.get("max_duration_s", 30.0)
+    current_t = snap.get("timestep", snap.get("current_step", 0))
 
-    # Build Plotly Figure
-    fig = go.Figure()
-
-    # Extract time series data
-    hit_times, hit_bands = [], []
-    fa_times, fa_bands = [], []
-    scan_times, scan_bands = [], []
-    gt_times, gt_bands = [], []
-
-    for d in time_series:
-        t_sec = d.get("time_s", 0.0)
-        for b in d.get("hits", []):
-            hit_times.append(t_sec)
-            hit_bands.append(int(b[1:]))
-        for b in d.get("false_alarms", []):
-            fa_times.append(t_sec)
-            fa_bands.append(int(b[1:]))
-        for b in d.get("selected_bands", []):
-            scan_times.append(t_sec)
-            scan_bands.append(int(b[1:]))
-        if show_ground_truth:
-            for b in d.get("active_truth", []):
-                gt_times.append(t_sec)
-                gt_bands.append(int(b[1:]))
-
-    # Ground Truth Background Trace (Only when explicitly enabled in Validation Mode)
-    if show_ground_truth and gt_times:
-        fig.add_trace(go.Scatter(
-            x=gt_times,
-            y=gt_bands,
-            mode="markers",
-            marker=dict(symbol="square", size=8, color="#2d2d30", line=dict(color="#2d2d30", width=1)),
-            name="RF Ground Truth (Eval Overlay)",
-            hoverinfo="text",
-            hovertext=[f"Active Band F{b:02d} @ {t:.2f}s" for t, b in zip(gt_times, gt_bands)],
-        ))
-
-    # Receiver Scanned Bands Trace (Observable receiver allocations)
-    if scan_times:
-        fig.add_trace(go.Scatter(
-            x=scan_times,
-            y=scan_bands,
-            mode="markers",
-            marker=dict(symbol="circle-open", size=7, color="#00e5ff", line=dict(width=1.5)),
-            name="Tuned Receiver Channel",
-            hoverinfo="skip",
-        ))
-
-    # False Alarms
-    if fa_times:
-        fig.add_trace(go.Scatter(
-            x=fa_times,
-            y=fa_bands,
-            mode="markers",
-            marker=dict(symbol="diamond", size=9, color="#ffab00"),
-            name="False Alarm (Noise Crossing)",
-            hoverinfo="text",
-            hovertext=[f"False Alarm F{b:02d} @ {t:.2f}s" for t, b in zip(fa_times, fa_bands)],
-        ))
-
-    # Confirmed True Detections
-    if hit_times:
-        fig.add_trace(go.Scatter(
-            x=hit_times,
-            y=hit_bands,
-            mode="markers",
-            marker=dict(symbol="star", size=13, color="#00c853", line=dict(color="#ffffff", width=1)),
-            name="Confirmed Detection (Pulse Intercepted)",
-            hoverinfo="text",
-            hovertext=[f"Confirmed Interception F{b:02d} @ {t:.2f}s" for t, b in zip(hit_times, hit_bands)],
-        ))
-
-    # Active Scanning Indicator Line at current timestep
-    fig.add_vline(
-        x=current_time_s,
-        line_width=1.5,
-        line_dash="dash",
-        line_color="#00e5ff",
-        annotation_text=f"t={current_time_s:.2f}s",
-        annotation_position="top right",
-        annotation_font=dict(color="#00e5ff", size=10),
-    )
-
-    # Highlight currently tuned channels at cursor
-    for sel_b in snap.get("selected_bands", []):
-        b_num = int(sel_b[1:])
-        fig.add_trace(go.Scatter(
-            x=[current_time_s],
-            y=[b_num],
-            mode="markers",
-            marker=dict(symbol="cross", size=12, color="#e6edee", line=dict(width=2, color="#00e5ff")),
-            showlegend=False,
-            hoverinfo="skip",
-        ))
-
-    # Layout styling
-    x_max = max(5.0, min(max_duration_s, current_time_s + 5.0))
-
-    fig.update_layout(
-        height=320,
-        margin=dict(l=40, r=20, t=25, b=35),
-        plot_bgcolor="#0a0a0b",
-        paper_bgcolor="#161618",
-        font=dict(color="#c9d1d9", family="monospace", size=10),
-        xaxis=dict(
-            title="Mission Time (s)",
-            gridcolor="#00e5ff1a",  # Stitch: 10%-opacity cyan grid overlay
-            range=[0.0, max(5.0, max_duration_s)],
-            zerolinecolor="#2d2d30",
-        ),
-        yaxis=dict(
-            title="Band (F01–F50)",
-            gridcolor="#00e5ff1a",
-            range=[0.5, 50.5],
-            dtick=5,
-            zerolinecolor="#2d2d30",
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            font=dict(size=9),
-            bgcolor="rgba(22,27,34,0.7)",
-        ),
-    )
-
+    fig = visualizations.spectrum_activity_map(time_series, current_t, strategy_view="smart_scan")
     st.plotly_chart(fig, use_container_width=True)
 
 

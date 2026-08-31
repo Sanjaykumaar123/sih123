@@ -325,16 +325,27 @@ class LiveMissionRuntime:
                 "frequency_range_mhz": None, "num_bands": None, "receiver_channels": self.engine.k_channels,
                 "total_steps": None, "error": "Scenario environment failed to load.",
             }
-        raw = env.raw_data
-        rec_meta = raw.receiver_metadata
+        raw = getattr(env, "raw_data", None)
+        rec_meta = getattr(raw, "receiver_metadata", None) if raw else None
+
+        if hasattr(env, "truth_manager"):
+            emitter_count = len(env.truth_manager.get_all_emitter_ids())
+        else:
+            emitter_count = len(getattr(env, "emitters", []))
+
+        duration_s = rec_meta.collection_time_s if rec_meta else (getattr(env, "total_steps", 600) * 0.05)
+        freq_range = tuple(rec_meta.freq_range_mhz) if rec_meta else (500.0, 18000.0)
+        num_bands = getattr(env, "num_bands", 50)
+        total_steps = getattr(env, "total_steps", 600)
+
         return {
             "scenario_file": self.engine.scenario_path,
-            "emitter_count": len(env.truth_manager.get_all_emitter_ids()),
-            "collection_duration_s": rec_meta.collection_time_s,
-            "frequency_range_mhz": tuple(rec_meta.freq_range_mhz),
-            "num_bands": env.num_bands,
+            "emitter_count": emitter_count,
+            "collection_duration_s": duration_s,
+            "frequency_range_mhz": freq_range,
+            "num_bands": num_bands,
             "receiver_channels": self.engine.k_channels,
-            "total_steps": env.total_steps,
+            "total_steps": total_steps,
         }
 
     # -------------------------------------------------------------------
@@ -350,7 +361,7 @@ class LiveMissionRuntime:
         snap["scenario_name"] = snap.get("scenario_name", "unknown")
         snap["speed"] = self.speed
         snap["speed_multiplier"] = self.speed
-        snap["max_duration_s"] = (self.engine.env.total_steps * 0.05) if self.engine.env else 30.0
+        snap["max_duration_s"] = (getattr(self.engine.env, "total_steps", 600) * 0.05) if self.engine.env else 30.0
         # Step 13's replay-only fields, defaulted honestly here so views that check
         # for them (e.g. decision_panel's band_scores_note) degrade gracefully - the
         # live engine DOES have real per-band scores for all 50 bands (unlike replay).

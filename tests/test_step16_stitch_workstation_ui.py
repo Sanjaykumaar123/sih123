@@ -34,7 +34,7 @@ def make_runtime(**kwargs):
 # Navigation: the real 8-item nav (rename + new ALERTS entry)
 # -----------------------------------------------------------------------------
 NAV_VIEWS_8 = [
-    "MISSION CONTROL", "SPECTRUM", "COGNITIVE ENGINE", "RECEIVER ARRAY",
+    "SOLUTION EXPLAINER", "MISSION CONTROL", "SPECTRUM", "COGNITIVE ENGINE", "RECEIVER ARRAY",
     "TRACKS", "ALERTS", "ANALYTICS", "SYSTEM",
 ]
 
@@ -46,7 +46,7 @@ def test_nav_has_exactly_the_operator_oriented_8_items_in_order():
     # AppTest exposes the format_func-rendered (icon-prefixed) labels, not the raw
     # option values passed to st.radio - compare against the same icon mapping
     # app.py's format_func actually uses.
-    expected = [f"{theme.NAV_ICONS.get(v, '')}  {v}" for v in NAV_VIEWS_8]
+    expected = [f"{theme.NAV_ICONS.get(v, '')}  {v}".strip() for v in NAV_VIEWS_8]
     assert list(radio.options) == expected
 
 
